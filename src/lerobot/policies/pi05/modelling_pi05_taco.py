@@ -732,13 +732,13 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
 
     @torch.no_grad()  # see openpi `sample_actions` (slightly adapted)
     def sample_actions(
-        self, 
-        images, 
-        img_masks, 
-        tokens, 
-        masks, 
-        noise=None, 
-        num_steps=None, 
+        self,
+        images,
+        img_masks,
+        tokens,
+        masks,
+        noise=None,
+        num_steps=None,
         num_samples: int = 1,
         guidance_actions: torch.FloatTensor = None,
         guidance_scale: float = 1.0,
@@ -801,26 +801,27 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
 
                     # Analytic gradient: dL/dv = (1 - t) * residual
                     grad_vel = (1.0 - expanded_time.reshape(expanded_time.shape[0], 1, 1)) * residual  # same shape as action_vel
-                    
+
                     # # Disable guidance on the last action dimension (e.g., gripper)
                     if not gripper_guidance:
                         grad_vel[..., -1] = 0.0 # Disable right gripper guidance
                         grad_vel[..., 6] = 0.0 # Disable left gripper guidance
-                    
+
                     # Apply guidance
-                    v_t = v_t - guidance_scale * grad_vel  
+                    v_t = v_t - guidance_scale * grad_vel
                 x_t = x_t + dt * v_t
                 time += dt
             all_actions.append(x_t)
-        
+
         # Stack all samples: [num_samples, batch_size, horizon_steps, action_dim]
         all_actions = torch.stack(all_actions, dim=0)
-        
+
         # If only 1 sample, return original shape [batch_size, horizon_steps, action_dim]
         if num_samples == 1:
             return all_actions[0]
         else:
             # Return [num_samples, batch_size, horizon_steps, action_dim]
+            raise NotImplementedError("Multiple samples return in the incorrect shape.")
             return all_actions
 
     @torch.no_grad()  # see openpi `sample_actions` (slightly adapted)
@@ -874,7 +875,7 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
 
         return x_t, feaure
 
-    @torch.no_grad() 
+    @torch.no_grad()
     def add_and_denoise1step_get_feature(self, images, img_masks, tokens, masks, clean_action, noise=None, num_steps=None) -> Tensor:
         """Do a single denoising and compute the action and feature."""
         if num_steps is None:
@@ -1014,6 +1015,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
     def __init__(
         self,
         config: PI05Config,
+        **kwargs,
     ):
         """
         Args:
@@ -1306,8 +1308,8 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
     @torch.no_grad()
     def predict_action_chunk(
-        self, 
-        batch: dict[str, Tensor], 
+        self,
+        batch: dict[str, Tensor],
         num_samples: int = 1,
         guidance_actions: torch.FloatTensor = None,
         guidance_scale: float = 1.0,
