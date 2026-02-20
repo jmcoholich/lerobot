@@ -1,11 +1,3 @@
-from dataclasses import dataclass, field
-
-from lerobot.cameras import CameraConfig
-from lerobot.cameras.opencv import OpenCVCameraConfig
-from lerobot.robots import RobotConfig
-from lerobot.cameras import make_cameras_from_configs
-from lerobot.motors import Motor, MotorNormMode
-from lerobot.motors.feetech import FeetechMotorsBus
 from lerobot.robots import Robot
 from .franka_config import FrankaConfig
 from openteach.utils.network import ZMQCameraSubscriber
@@ -13,6 +5,7 @@ from openteach.components.operators.franka import (
     CONFIG_ROOT,
     FrankaArmOperator,
 )
+from openteach.constants import VR_FREQ
 import yaml
 import os
 from easydict import EasyDict
@@ -63,6 +56,8 @@ class FrankaRobot(Robot):
             "camera_wrist",
             "camera_front",
         ]
+        self.operator.timer.start_loop()
+        print(f"Running inference at {VR_FREQ} Hz")
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
@@ -100,10 +95,12 @@ class FrankaRobot(Robot):
         pass
 
     def send_action(self, action) -> None:
+        self.operator.timer.end_loop()
         arm_action = [action["dx"], action["dy"], action["dz"], action["droll"], action["dpitch"], action["dyaw"]]
         gripper_action = action["gripper"]
         playback_actions = (arm_action, gripper_action)
         self.operator.arm_control(None, None, playback_actions=playback_actions)
+        self.operator.timer.start_loop()
 
     @property
     def is_connected(self) -> bool:
