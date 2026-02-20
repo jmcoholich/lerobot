@@ -97,8 +97,8 @@ class FrankaRobot(Robot):
     def send_action(self, action) -> None:
         self.operator.timer.end_loop()
         arm_action = [action["dx"], action["dy"], action["dz"], action["droll"], action["dpitch"], action["dyaw"]]
-        gripper_action = action["gripper"]
-        playback_actions = (arm_action, gripper_action)
+        action["gripper"] = 1 if action["gripper"] > 0 else -1
+        playback_actions = (arm_action, action["gripper"])
         self.operator.arm_control(None, None, playback_actions=playback_actions)
         self.operator.timer.start_loop()
 
