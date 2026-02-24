@@ -56,7 +56,7 @@ class FrankaRobot(Robot):
             "camera_wrist",
             "camera_front",
         ]
-        self.operator.timer.start_loop()
+        # self.operator.timer.start_loop()
         print(f"Running inference at {VR_FREQ} Hz")
 
     @property
@@ -95,12 +95,12 @@ class FrankaRobot(Robot):
         pass
 
     def send_action(self, action) -> None:
-        self.operator.timer.end_loop()
+        # self.operator.timer.end_loop()
         arm_action = [action["dx"], action["dy"], action["dz"], action["droll"], action["dpitch"], action["dyaw"]]
         action["gripper"] = 1 if action["gripper"] > 0 else -1
         playback_actions = (arm_action, action["gripper"])
         self.operator.arm_control(None, None, playback_actions=playback_actions)
-        self.operator.timer.start_loop()
+        # self.operator.timer.start_loop()
 
     @property
     def is_connected(self) -> bool:
