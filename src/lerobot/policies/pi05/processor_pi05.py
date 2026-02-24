@@ -169,3 +169,24 @@ def make_pi05_pre_post_processors(
             to_output=transition_to_policy_action,
         ),
     )
+
+def make_pi05_action_normalizer(
+    config: PI05Config,
+    dataset_stats: dict[str, dict[str, torch.Tensor]] | None = None,
+):
+    output_steps: list[ProcessorStep] = [
+        NormalizerProcessorStep(
+            features=config.output_features,  # {'action': PolicyFeature(type=<FeatureType.ACTION: 'ACTION'>, shape=(7,))}
+            norm_map=config.normalization_mapping,  # {'VISUAL': <NormalizationMode.IDENTITY: 'IDENTITY'>, 'STATE': <NormalizationMode.QUANTILES: 'QUANTILES'>, 'ACTION': <NormalizationMode.QUANTILES: 'QUANTILES'>}
+            stats=dataset_stats,  # {}
+        ),
+        DeviceProcessorStep(device="cuda"),
+    ]
+    
+    output = PolicyProcessorPipeline[PolicyAction, PolicyAction](
+            steps=output_steps,
+            name=POLICY_POSTPROCESSOR_DEFAULT_NAME,
+            to_transition=policy_action_to_transition,
+            to_output=transition_to_policy_action,
+        )
+    return output

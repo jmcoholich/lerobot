@@ -26,6 +26,7 @@ import torch.nn.functional as F  # noqa: N812
 from torch import Tensor, nn
 
 from lerobot.utils.import_utils import _transformers_available
+from lerobot.policies.pi05.action_primitives import get_guidance_action_from_text
 
 # Conditional import for type checking and lazy loading
 if TYPE_CHECKING or _transformers_available:
@@ -797,7 +798,9 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
                 if use_guidance:
                     # Everything in original dtype (bfloat16) is fine for this
                     clean_x_t_hat = x_t + (1.0 - expanded_time.reshape(expanded_time.shape[0], 1, 1)) * v_t   # Line 26 of Alg 1 of RTC paper: https://arxiv.org/pdf/2506.07339
-                    residual = (clean_x_t_hat - guidance_actions) # [bsz, H, A]
+                    fixed_guidance_actions = torch.clone(clean_x_t_hat)
+                    fixed_guidance_actions[:, :, :7] = guidance_actions
+                    residual = (clean_x_t_hat - fixed_guidance_actions) # [bsz, H, A]
 
                     # Analytic gradient: dL/dv = (1 - t) * residual
                     grad_vel = (1.0 - expanded_time.reshape(expanded_time.shape[0], 1, 1)) * residual  # same shape as action_vel
@@ -1300,13 +1303,14 @@ class PI05PolicyTaco(PreTrainedPolicy):
         return actions
 
     @torch.no_grad()
-    def select_action(self, batch: dict[str, Tensor]) -> Tensor:
+    def select_action(self, batch: dict[str, Tensor], postprocessor=None, action_normalizer=None) -> Tensor:
         """Select a single action given environment observations."""
         self.eval()
 
+        guidance_action = get_guidance_action_from_text("up", postprocessor=postprocessor, action_normalizer=action_normalizer)
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
-            actions = self.predict_action_chunk(batch)[:, : self.config.n_action_steps]
+            actions = self.predict_action_chunk(batch, guidance_actions=guidance_action, guidance_scale=10.0)[:, : self.config.n_action_steps]
             # Transpose to get shape (n_action_steps, batch_size, action_dim)
             self._action_queue.extend(actions.transpose(0, 1))
 

@@ -100,6 +100,7 @@ class FrankaRobot(Robot):
         pass
 
     def send_action(self, action) -> None:
+        print(action)
         arm_action = [action["dx"], action["dy"], action["dz"], action["droll"], action["dpitch"], action["dyaw"]]
         gripper_action = action["gripper"]
         playback_actions = (arm_action, gripper_action)

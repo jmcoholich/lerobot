@@ -96,6 +96,7 @@ from lerobot.processor import (
     RobotProcessorPipeline,
     make_default_processors,
 )
+from lerobot.policies.pi05.processor_pi05 import make_pi05_action_normalizer
 from lerobot.processor.rename_processor import rename_stats
 from lerobot.robots import Robot, RobotConfig, make_robot_from_config
 from lerobot.teleoperators import Teleoperator, TeleoperatorConfig, make_teleoperator_from_config
@@ -297,6 +298,7 @@ def record_loop(
     robot_observation_processor: RobotProcessorPipeline[
         RobotObservation, RobotObservation
     ],  # runs after robot
+    action_normalizer=None,
     dataset: LeRobotDataset | None = None,
     teleop: Teleoperator | list[Teleoperator] | None = None,
     policy: PreTrainedPolicy | None = None,
@@ -362,6 +364,7 @@ def record_loop(
                 use_amp=policy.config.use_amp,
                 task=single_task,
                 robot_type=robot.robot_type,
+                action_normalizer=action_normalizer,
             )
 
             act_processed_policy: RobotAction = make_robot_action(action_values, dataset.features)
@@ -498,6 +501,10 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     "rename_observations_processor": {"rename_map": cfg.dataset.rename_map},
                 },
             )
+            action_normalizer = make_pi05_action_normalizer(
+                config=cfg.policy,
+                dataset_stats=rename_stats(dataset.meta.stats, cfg.dataset.rename_map),
+            )
 
         robot.connect()
         if teleop is not None:
@@ -515,6 +522,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     fps=cfg.dataset.fps,
                     teleop_action_processor=teleop_action_processor,
                     robot_action_processor=robot_action_processor,
+                    action_normalizer=action_normalizer,
                     robot_observation_processor=robot_observation_processor,
                     teleop=teleop,
                     policy=policy,
@@ -544,6 +552,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                         fps=cfg.dataset.fps,
                         teleop_action_processor=teleop_action_processor,
                         robot_action_processor=robot_action_processor,
+                        action_normalizer=action_normalizer,
                         robot_observation_processor=robot_observation_processor,
                         teleop=teleop,
                         control_time_s=cfg.dataset.reset_time_s,
