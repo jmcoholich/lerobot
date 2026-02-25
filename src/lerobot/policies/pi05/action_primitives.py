@@ -4,8 +4,8 @@ These actions are in OSC_POSE space. This is assuming wrist camera observations
 import numpy as np
 import torch
 CHUNK_SIZE = 50
-DES_TRANSLATION = 0.5
-DES_ROTATION = np.deg2rad(15.0)
+DES_TRANSLATION = 0.5  # units seem arbitrary in OSC_POSE space due to scaling/normalization in controller stack, so just picked a reasonable amount for one action chunk
+DES_ROTATION = 2.5  # ditto
 GRIPPER_ACTION = -1.0  # Hardcoded as open
 
 BACKWARD = (0.0, 0.0, DES_TRANSLATION / CHUNK_SIZE, 0.0, 0.0, 0.0, GRIPPER_ACTION)
