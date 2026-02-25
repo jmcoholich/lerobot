@@ -124,7 +124,6 @@ class FrankaRobot(Robot):
     def calibrate(self) -> None:
         pass
 
-    # TODO should any normalization or preprocessing be done here?
     def get_observation(self):
         if not self.is_connected:
             raise ConnectionError(f"{self} is not connected.")

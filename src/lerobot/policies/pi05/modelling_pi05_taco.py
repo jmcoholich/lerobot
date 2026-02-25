@@ -1307,7 +1307,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         """Select a single action given environment observations."""
         self.eval()
 
-        guidance_action = get_guidance_action_from_text("up", postprocessor=postprocessor, action_normalizer=action_normalizer)
+        guidance_action = get_guidance_action_from_text("forward", postprocessor=postprocessor)
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
             actions = self.predict_action_chunk(batch, guidance_actions=guidance_action, guidance_scale=10.0)[:, : self.config.n_action_steps]
@@ -1339,7 +1339,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         # ipdb.set_trace()
         # Unpad actions to actual action dimension
         original_action_dim = self.config.output_features[ACTION].shape[0]
-        actions = actions[:, :, :original_action_dim]
+        actions = actions[..., :original_action_dim]
 
         return actions
 

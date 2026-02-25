@@ -71,7 +71,6 @@ def predict_action(
     preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]],
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction],
     use_amp: bool,
-    action_normalizer=None,
     task: str | None = None,
     robot_type: str | None = None,
 ):
@@ -109,7 +108,7 @@ def predict_action(
 
         # Compute the next action with the policy
         # based on the current observation
-        action = policy.select_action(observation, postprocessor=postprocessor, action_normalizer=action_normalizer)
+        action = policy.select_action(observation, postprocessor=postprocessor)
 
         action = postprocessor(action)
 
