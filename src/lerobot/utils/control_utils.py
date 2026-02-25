@@ -73,6 +73,7 @@ def predict_action(
     use_amp: bool,
     task: str | None = None,
     robot_type: str | None = None,
+    robot = None,
 ):
     """
     Performs a single-step inference to predict a robot action from an observation.
@@ -108,7 +109,7 @@ def predict_action(
 
         # Compute the next action with the policy
         # based on the current observation
-        action = policy.select_action(observation, postprocessor=postprocessor)
+        action = policy.select_action(observation, postprocessor=postprocessor, robot=robot)
 
         action = postprocessor(action)
 

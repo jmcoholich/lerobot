@@ -1303,14 +1303,16 @@ class PI05PolicyTaco(PreTrainedPolicy):
         return actions
 
     @torch.no_grad()
-    def select_action(self, batch: dict[str, Tensor], postprocessor=None, action_normalizer=None) -> Tensor:
+    def select_action(self, batch: dict[str, Tensor], postprocessor=None, robot=None) -> Tensor:
         """Select a single action given environment observations."""
         self.eval()
 
-        guidance_action = get_guidance_action_from_text("forward", postprocessor=postprocessor)
+        guidance_action = get_guidance_action_from_text("rotate_cw", postprocessor=postprocessor, robot=robot)
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
-            actions = self.predict_action_chunk(batch, guidance_actions=guidance_action, guidance_scale=10.0)[:, : self.config.n_action_steps]
+            actions = self.predict_action_chunk(batch, guidance_actions=guidance_action, guidance_scale=1.0)[:, : self.config.n_action_steps]
+            actions[:, :] = guidance_action
+            print("guidance_action:", guidance_action)
             # Transpose to get shape (n_action_steps, batch_size, action_dim)
             self._action_queue.extend(actions.transpose(0, 1))
 
