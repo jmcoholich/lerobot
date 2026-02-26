@@ -82,12 +82,13 @@ class FrankaRobot(Robot):
     @property
     def action_features(self) -> dict:
         return {
-            "dx": float,
-            "dy": float,
-            "dz": float,
-            "droll": float,
-            "dpitch": float,
-            "dyaw": float,
+            "x": float,
+            "y": float,
+            "z": float,
+            "quat_x": float,
+            "quat_y": float,
+            "quat_z": float,
+            "quat_w": float,
             "gripper": float,
         }
 
@@ -95,12 +96,8 @@ class FrankaRobot(Robot):
         pass
 
     def send_action(self, action) -> None:
-        # self.operator.timer.end_loop()
-        arm_action = [action["dx"], action["dy"], action["dz"], action["droll"], action["dpitch"], action["dyaw"]]
-        action["gripper"] = 1 if action["gripper"] > 0 else -1
-        playback_actions = (arm_action, action["gripper"])
-        self.operator.arm_control(None, None, playback_actions=playback_actions)
-        # self.operator.timer.start_loop()
+        abs_eef_pose = [action["x"], action["y"], action["z"], action["quat_x"], action["quat_y"], action["quat_z"], action["quat_w"]]
+        self.operator.arm_control(abs_eef_pose, action["gripper"])
 
     @property
     def is_connected(self) -> bool:
