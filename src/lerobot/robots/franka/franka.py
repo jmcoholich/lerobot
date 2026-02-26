@@ -5,7 +5,6 @@ from openteach.components.operators.franka import (
     CONFIG_ROOT,
     FrankaArmOperator,
 )
-from openteach.constants import VR_FREQ
 import yaml
 import os
 from easydict import EasyDict
@@ -56,8 +55,6 @@ class FrankaRobot(Robot):
             "camera_wrist",
             "camera_front",
         ]
-        # self.operator.timer.start_loop()
-        print(f"Running inference at {VR_FREQ} Hz")
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
@@ -117,7 +114,6 @@ class FrankaRobot(Robot):
     def calibrate(self) -> None:
         pass
 
-    # TODO should any normalization or preprocessing be done here?
     def get_observation(self):
         if not self.is_connected:
             raise ConnectionError(f"{self} is not connected.")
