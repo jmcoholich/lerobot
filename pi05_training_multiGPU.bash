@@ -29,7 +29,7 @@ accelerate launch \
 --mixed_precision=bf16 \
 $(which lerobot-train) \
     --dataset.repo_id=eve_blocks \
-    --dataset.root='/coc/testnvme/jcoholich3/lerobot_data/eve_blocks' \
+    --dataset.root='/coc/testnvme/jcoholich3/lerobot_data/eve_blocks_cartesian' \
     --policy.type=pi05 \
     --output_dir=$OUTDIR \
     --job_name=$JOB_NAME \

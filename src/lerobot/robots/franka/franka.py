@@ -1,11 +1,3 @@
-from dataclasses import dataclass, field
-
-from lerobot.cameras import CameraConfig
-from lerobot.cameras.opencv import OpenCVCameraConfig
-from lerobot.robots import RobotConfig
-from lerobot.cameras import make_cameras_from_configs
-from lerobot.motors import Motor, MotorNormMode
-from lerobot.motors.feetech import FeetechMotorsBus
 from lerobot.robots import Robot
 from .franka_config import FrankaConfig
 from openteach.utils.network import ZMQCameraSubscriber
@@ -87,12 +79,13 @@ class FrankaRobot(Robot):
     @property
     def action_features(self) -> dict:
         return {
-            "dx": float,
-            "dy": float,
-            "dz": float,
-            "droll": float,
-            "dpitch": float,
-            "dyaw": float,
+            "x": float,
+            "y": float,
+            "z": float,
+            "quat_x": float,
+            "quat_y": float,
+            "quat_z": float,
+            "quat_w": float,
             "gripper": float,
         }
 
@@ -100,11 +93,8 @@ class FrankaRobot(Robot):
         pass
 
     def send_action(self, action) -> None:
-        print(action)
-        arm_action = [action["dx"], action["dy"], action["dz"], action["droll"], action["dpitch"], action["dyaw"]]
-        gripper_action = action["gripper"]
-        playback_actions = (arm_action, gripper_action)
-        self.operator.arm_control(None, None, playback_actions=playback_actions)
+        abs_eef_pose = [action["x"], action["y"], action["z"], action["quat_x"], action["quat_y"], action["quat_z"], action["quat_w"]]
+        self.operator.arm_control(abs_eef_pose, action["gripper"])
 
     @property
     def is_connected(self) -> bool:
