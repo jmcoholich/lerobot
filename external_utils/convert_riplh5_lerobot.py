@@ -3,11 +3,10 @@ import numpy as np
 from pathlib import Path
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
-import math
 
 # Configuration
 REPO_ID = "lerobot/eve_blocks"
-DATASET_NAME = "eve_blocks"
+DATASET_NAME = "eve_blocks_cartesian"
 ORIG_DATASET_PATH = Path("/home/jeremiah/openteach/extracted_data/eve_blocks/h5_files")
 FPS = 20
 ROOT_DIR = Path(f"/data3/lerobot_data/{DATASET_NAME}")  # Where the dataset will be created locally
@@ -16,12 +15,12 @@ ROOT_DIR = Path(f"/data3/lerobot_data/{DATASET_NAME}")  # Where the dataset will
 # Note: 'task' is not defined here but is required in add_frame()
 FEATURES = {
     "action": {
-        "dtype": "float64",
-        "shape": (7,),
-        "names": ["dx", "dy", "dz", "drx", "dry", "drz", "gripper_action"],
+        "dtype": "float32",
+        "shape": (8,),
+        "names": ["x", "y", "z", "quat_x", "quat_y", "quat_z", "quat_w", "gripper"],
     },
     "observation.state": {
-        "dtype": "float64",
+        "dtype": "float32",
         "shape": (8,),
         "names": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7", "gripper_pos"],
     },
@@ -61,8 +60,8 @@ def main():
         with h5py.File(h5_path, "r") as f:
             # Extract hdf5 data
 
-            actions = np.concatenate([f['arm_action'], np.expand_dims(f['gripper_action'],axis=1)], axis=1)
-            observation_states = np.concatenate([f['joint_pos'], np.expand_dims(f['gripper_state'], axis=1)], axis=1)
+            actions = np.concatenate([f['cartesian_pose_cmd'], np.expand_dims(f['gripper_action'],axis=1)], axis=1, dtype=np.float32)
+            observation_states = np.concatenate([f['joint_pos'], np.expand_dims(f['gripper_state'], axis=1)], axis=1, dtype=np.float32)
             rgb_frames = f['rgb_frames'][:]
             camera_side_imgs = rgb_frames[:, 0, :, :, ::-1]
             camera_wrist_imgs = rgb_frames[:, 1, :, :, ::-1]
