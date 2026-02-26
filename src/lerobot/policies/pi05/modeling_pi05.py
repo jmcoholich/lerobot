@@ -987,8 +987,25 @@ class PI05Policy(PreTrainedPolicy):
         # First, fix any key differences # see openpi `model.py, _fix_pytorch_state_dict_keys`
         fixed_state_dict = model._fix_pytorch_state_dict_keys(original_state_dict, model.config)
 
+        # Then add "model." prefix for all keys that don't already have it
+        remapped_state_dict = {}
+        remap_count = 0
+
+        for key, value in fixed_state_dict.items():
+            if not key.startswith("model."):
+                new_key = f"model.{key}"
+                remapped_state_dict[new_key] = value
+                remap_count += 1
+                if remap_count <= 10:  # Only print first 10 to avoid spam
+                    print(f"Remapped: {key} -> {new_key}")
+            else:
+                remapped_state_dict[key] = value
+
+        if remap_count > 0:
+            print(f"Remapped {remap_count} state dict keys")
+
         # Load the remapped state dict into the model
-        missing_keys, unexpected_keys = model.load_state_dict(fixed_state_dict, strict=False)
+        missing_keys, unexpected_keys = model.load_state_dict(remapped_state_dict, strict=False)
 
         if missing_keys != ['model.paligemma_with_expert.paligemma.model.language_model.embed_tokens.weight'] or unexpected_keys:
             raise RuntimeError(f"Unexpected missing or unexpected keys: missing={missing_keys}, unexpected={unexpected_keys}")
