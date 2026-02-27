@@ -3,9 +3,10 @@ These actions are in OSC_POSE space. This is assuming wrist camera observations
 """
 import numpy as np
 import torch
+from deoxys.utils.transform_utils import axisangle2quat, quat_multiply
 CHUNK_SIZE = 50
-DES_TRANSLATION = 0.5  # units seem arbitrary in OSC_POSE space due to scaling/normalization in controller stack, so just picked a reasonable amount for one action chunk
-DES_ROTATION = 2.5  # ditto
+DES_TRANSLATION = 0.1
+DES_ROTATION = np.deg2rad(22.5)
 GRIPPER_ACTION = -1.0  # Hardcoded as open
 
 BACKWARD = (0.0, 0.0, DES_TRANSLATION / CHUNK_SIZE, 0.0, 0.0, 0.0, GRIPPER_ACTION)
@@ -44,9 +45,12 @@ def create_cartesian_chunk(primitive, robot):
     """Creates a chunk of absolute eef pose actions"""
     quat, pos = robot.operator.robot_interface.last_eef_quat_and_pos
     primitive = torch.tensor(primitive)
-    # TODO doesn't work for ccw yet
     output = torch.zeros(1, CHUNK_SIZE, 8)
     output[0, :, 3:7] = torch.from_numpy(quat)  # unchanged
+    aa_chunk = torch.arange(CHUNK_SIZE).reshape(CHUNK_SIZE, 1) * primitive[3:6].reshape(1, 3)
+    for i in range(CHUNK_SIZE):
+        delta_quat = axisangle2quat(aa_chunk[i])
+        output[0, i, 3:7] = torch.from_numpy(quat_multiply(delta_quat, output[0, i, 3:7]))
     output[0, :, :3] = torch.from_numpy(pos).squeeze()
     output[0, :, :3] += torch.arange(CHUNK_SIZE).reshape(CHUNK_SIZE, 1) * primitive[:3].reshape(1, 3)
     output[0, :, 7] = GRIPPER_ACTION

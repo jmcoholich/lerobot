@@ -46,6 +46,7 @@ from lerobot.utils.constants import (
     OPENPI_ATTENTION_MASK_VALUE,
 )
 
+from safetensors.torch import load_file
 
 def get_safe_dtype(target_dtype, device_type):
     """Get a safe dtype for the given device type."""
@@ -795,7 +796,7 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
                     # Everything in original dtype (bfloat16) is fine for this
                     clean_x_t_hat = x_t + (1.0 - expanded_time.reshape(expanded_time.shape[0], 1, 1)) * v_t   # Line 26 of Alg 1 of RTC paper: https://arxiv.org/pdf/2506.07339
                     fixed_guidance_actions = torch.clone(clean_x_t_hat)
-                    fixed_guidance_actions[:, :, :7] = guidance_actions
+                    fixed_guidance_actions[:, :, :8] = guidance_actions
                     residual = (clean_x_t_hat - fixed_guidance_actions) # [bsz, H, A]
 
                     # Analytic gradient: dL/dv = (1 - t) * residual
@@ -1264,7 +1265,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         """Select a single action given environment observations."""
         self.eval()
 
-        guidance_action = get_guidance_action_from_text("up", postprocessor=postprocessor, robot=robot)
+        guidance_action = get_guidance_action_from_text("rotate_cw", postprocessor=postprocessor, robot=robot)
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
             actions = self.predict_action_chunk(batch, guidance_actions=guidance_action, guidance_scale=1.0)[:, : self.config.n_action_steps]
