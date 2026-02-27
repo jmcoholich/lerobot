@@ -982,7 +982,7 @@ class PI05Policy(PreTrainedPolicy):
         )
 
         original_state_dict = load_file(resolved_file)
-        print("✓ Loaded state dict from model.safetensors")
+        print("[OK] Loaded state dict from model.safetensors")
 
         # First, fix any key differences # see openpi `model.py, _fix_pytorch_state_dict_keys`
         fixed_state_dict = model._fix_pytorch_state_dict_keys(original_state_dict, model.config)

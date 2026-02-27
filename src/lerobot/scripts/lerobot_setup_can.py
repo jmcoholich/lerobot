@@ -191,7 +191,7 @@ def test_interface(cfg: CANSetupConfig, interface: str):
                 print(f"  Motor 0x{motor_id:02X} ({motor_name}): ✗ {error}")
                 results[motor_id] = {"found": False, "error": error}
             elif responses:
-                print(f"  Motor 0x{motor_id:02X} ({motor_name}): ✓ FOUND")
+                print(f"  Motor 0x{motor_id:02X} ({motor_name}): [OK] FOUND")
                 for resp_id, data, is_fd in responses:
                     fd_flag = " [FD]" if is_fd else ""
                     print(f"    → Response 0x{resp_id:02X}{fd_flag}: {data}")
@@ -262,9 +262,9 @@ def speed_test(cfg: CANSetupConfig, interface: str):
     if latencies:
         avg_latency = sum(latencies) / len(latencies)
         hz = 1000.0 / avg_latency if avg_latency > 0 else 0
-        print(f"  ✓ Success rate: {len(latencies)}/{cfg.speed_iterations}")
-        print(f"  ✓ Avg latency: {avg_latency:.2f} ms")
-        print(f"  ✓ Max frequency: {hz:.1f} Hz")
+        print(f"  [OK] Success rate: {len(latencies)}/{cfg.speed_iterations}")
+        print(f"  [OK] Avg latency: {avg_latency:.2f} ms")
+        print(f"  [OK] Max frequency: {hz:.1f} Hz")
     else:
         print("  ✗ No successful responses")
 
@@ -285,7 +285,7 @@ def run_setup(cfg: CANSetupConfig):
         print(f"Configuring {interface}...")
         if setup_interface(interface, cfg.bitrate, cfg.data_bitrate, cfg.use_fd):
             is_up, status, _ = check_interface_status(interface)
-            print(f"  ✓ {interface}: {status}")
+            print(f"  [OK] {interface}: {status}")
         else:
             print(f"  ✗ {interface}: Failed")
 

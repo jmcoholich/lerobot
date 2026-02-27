@@ -28,38 +28,38 @@ def test_damiao_motor():
     try:
         print("Connecting...")
         bus.connect()
-        print("✓ Connected")
+        print("[OK] Connected")
 
         print("Enabling torque...")
         bus.enable_torque()
-        print("✓ Torque enabled")
+        print("[OK] Torque enabled")
 
         print("Reading all states...")
         states = bus.sync_read_all_states()
-        print(f"✓ States: {states}")
+        print(f"[OK] States: {states}")
 
         print("Reading position...")
         positions = bus.sync_read("Present_Position")
-        print(f"✓ Position: {positions}")
+        print(f"[OK] Position: {positions}")
 
         print("Testing MIT control batch...")
         current_pos = states["joint_3"]["position"]
         commands = {"joint_3": (10.0, 0.5, current_pos, 0.0, 0.0)}
         bus._mit_control_batch(commands)
-        print("✓ MIT control batch sent")
+        print("[OK] MIT control batch sent")
 
         print("Disabling torque...")
         bus.disable_torque()
-        print("✓ Torque disabled")
+        print("[OK] Torque disabled")
 
         print("Setting zero position...")
         bus.set_zero_position()
-        print("✓ Zero position set")
+        print("[OK] Zero position set")
 
     finally:
         print("Disconnecting...")
         bus.disconnect(disable_torque=True)
-        print("✓ Disconnected")
+        print("[OK] Disconnected")
 
 
 if __name__ == "__main__":

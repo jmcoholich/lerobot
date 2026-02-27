@@ -18,7 +18,7 @@ conda activate lerobot
 
 python src/lerobot/scripts/lerobot_train.py\
     --dataset.repo_id=eve_blocks \
-    --dataset.root='/coc/testnvme/jcoholich3/lerobot_data/eve_blocks' \
+    --dataset.root='/coc/testnvme/jcoholich3/lerobot_data/eve_blocks_cartesian' \
     --policy.type=pi05 \
     --output_dir=$OUTDIR \
     --job_name=$JOB_NAME \
@@ -28,8 +28,8 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.gradient_checkpointing=true \
     --wandb.enable=true \
     --policy.dtype=bfloat16 \
-    --policy.freeze_vision_encoder=false \
-    --policy.train_expert_only=false \
+    --policy.freeze_vision_encoder=true \
+    --policy.train_expert_only=true \
     --steps=3000 \
     --policy.device=cuda \
     --batch_size=32 \

@@ -321,7 +321,7 @@ def train_fast_tokenizer(
         time_horizon=action_chunks.shape[1],  # action_horizon
         action_dim=action_chunks.shape[2],  # encoded dimensions
     )
-    print("✓ Tokenizer training complete!")
+    print("[OK] Tokenizer training complete!")
 
     # validate it works
     sample_chunk = action_chunks[0]
