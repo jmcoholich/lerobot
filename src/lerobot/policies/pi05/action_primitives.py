@@ -43,7 +43,11 @@ def get_guidance_action_from_text(label, postprocessor, robot):
 
 def create_cartesian_chunk(primitive, robot):
     """Creates a chunk of absolute eef pose actions"""
-    quat, pos = robot.operator.robot_interface.last_eef_quat_and_pos
+    if robot.debug:
+        quat = np.array([0.99982, 0.00968, 0.01597, 0.00365], dtype=np.float32)
+        pos = np.array([[0.45868], [0.03165], [0.26477]])
+    else:
+        quat, pos = robot.operator.robot_interface.last_eef_quat_and_pos
     primitive = torch.tensor(primitive)
     output = torch.zeros(1, CHUNK_SIZE, 8)
     output[0, :, 3:7] = torch.from_numpy(quat)  # unchanged

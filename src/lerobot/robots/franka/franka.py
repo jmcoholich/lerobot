@@ -9,13 +9,17 @@ import yaml
 import os
 from easydict import EasyDict
 import numpy as np
+import pickle
 
+# Debug flag allows inference without connecting to the robot
+DEBUG = True
 class FrankaRobot(Robot):
     config_class = FrankaConfig
     name = "franka"
 
     def __init__(self, config: FrankaConfig):
         super().__init__(config)
+        self.debug = DEBUG
         self.front_subscriber = ZMQCameraSubscriber(
                 host = "172.16.0.1",
                 port = "10007",
@@ -94,11 +98,17 @@ class FrankaRobot(Robot):
 
     def send_action(self, action) -> None:
         abs_eef_pose = [action["x"], action["y"], action["z"], action["quat_x"], action["quat_y"], action["quat_z"], action["quat_w"]]
-        self.operator.arm_control(abs_eef_pose, action["gripper"])
+        if self.debug:
+            print(abs_eef_pose, action["gripper"])
+        else:
+            self.operator.arm_control(abs_eef_pose, action["gripper"])
 
     @property
     def is_connected(self) -> bool:
-        return self.operator.robot_interface.last_q is not None
+        if DEBUG:
+            return True
+        else:
+            return self.operator.robot_interface.last_q is not None
 
     def connect(self, calibrate: bool = True) -> None:
         pass
@@ -117,20 +127,23 @@ class FrankaRobot(Robot):
     def get_observation(self):
         if not self.is_connected:
             raise ConnectionError(f"{self} is not connected.")
+        if self.debug:
+            with open("src/lerobot/robots/franka/dummy_obs_dict.pkl", "rb") as f:
+                obs_dict = pickle.load(f)
+        else:
+            obs_dict = {}
+            obs_dict["camera_side"], _ = self.side_subscriber.recv_rgb_image()
+            obs_dict["camera_wrist"], _ = self.wrist_subscriber.recv_rgb_image()
+            obs_dict["camera_front"], _ = self.front_subscriber.recv_rgb_image()
+            obs_dict["camera_side"] = np.copy(obs_dict["camera_side"][:, :, ::-1])
+            obs_dict["camera_wrist"] = np.copy(obs_dict["camera_wrist"][:, :, ::-1])
+            obs_dict["camera_front"] = np.copy(obs_dict["camera_front"][:, :, ::-1])
 
-        obs_dict = {}
-        obs_dict["camera_side"], _ = self.side_subscriber.recv_rgb_image()
-        obs_dict["camera_wrist"], _ = self.wrist_subscriber.recv_rgb_image()
-        obs_dict["camera_front"], _ = self.front_subscriber.recv_rgb_image()
-        obs_dict["camera_side"] = np.copy(obs_dict["camera_side"][:, :, ::-1])
-        obs_dict["camera_wrist"] = np.copy(obs_dict["camera_wrist"][:, :, ::-1])
-        obs_dict["camera_front"] = np.copy(obs_dict["camera_front"][:, :, ::-1])
+            obs_dict["camera_front"][:, :140] = 0
+            obs_dict["camera_front"][:, 500:] = 0
 
-        obs_dict["camera_front"][:, :140] = 0
-        obs_dict["camera_front"][:, 500:] = 0
-
-        joint_pos = self.operator.robot_interface.last_q.tolist()
-        for i, pos in enumerate(joint_pos):
-            obs_dict[f"joint_pos.{i+1}"] = pos
-        obs_dict["gripper_pos"] = self.operator.robot_interface.last_gripper_q
+            joint_pos = self.operator.robot_interface.last_q.tolist()
+            for i, pos in enumerate(joint_pos):
+                obs_dict[f"joint_pos.{i+1}"] = pos
+            obs_dict["gripper_pos"] = self.operator.robot_interface.last_gripper_q
         return obs_dict
