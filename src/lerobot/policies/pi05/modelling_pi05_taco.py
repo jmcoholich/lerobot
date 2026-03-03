@@ -748,11 +748,11 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         if num_steps is None:
             num_steps = self.config.num_inference_steps
 
-        bsize = tokens.shape[0]
+        bsize = num_samples
         device = tokens.device
-
-        # Determine if we need to use guidance
         use_guidance = guidance_actions is not None and guidance_scale > 0.0
+        if use_guidance:
+            guidance_actions = guidance_actions.to(device=device, dtype=torch.float32)
 
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, tokens, masks)
         prefix_att_2d_masks = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
@@ -773,58 +773,63 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         dt = torch.tensor(dt, dtype=torch.float32, device=device)
 
         # Sample multiple action trajectories if num_samples > 1
-        all_actions = []
-        for sample_idx in range(num_samples):
-            if noise is None:
-                # Sample noise with padded dimension as expected by action_in_proj
-                actions_shape = (
-                    bsize,
-                    self.config.chunk_size,
-                    self.config.max_action_dim,
-                )  # Use config max_action_dim for internal processing
-                noise = self.sample_noise(actions_shape, device)
-            x_t = noise
-            time = torch.tensor(1.0, dtype=torch.float32, device=device)
-            while time >= -dt / 2:
-                expanded_time = time.expand(bsize)
-                v_t = self.denoise_step(
-                    prefix_pad_masks,
-                    past_key_values,
-                    x_t,
-                    expanded_time,
-                )
-                # Apply Reconstruction Guidance
-                if use_guidance:
-                    # Everything in original dtype (bfloat16) is fine for this
-                    clean_x_t_hat = x_t + (1.0 - expanded_time.reshape(expanded_time.shape[0], 1, 1)) * v_t   # Line 26 of Alg 1 of RTC paper: https://arxiv.org/pdf/2506.07339
-                    fixed_guidance_actions = torch.clone(clean_x_t_hat)
-                    fixed_guidance_actions[:, :, :8] = guidance_actions
-                    residual = (clean_x_t_hat - fixed_guidance_actions) # [bsz, H, A]
+        if noise is None:
+            # Sample noise with padded dimension as expected by action_in_proj
+            actions_shape = (
+                bsize,
+                self.config.chunk_size,
+                self.config.max_action_dim,
+            )  # Use config max_action_dim for internal processing
+            noise = self.sample_noise(actions_shape, device)
+        x_t = noise
+        time = torch.tensor(1.0, dtype=torch.float32, device=device)
+        if prefix_pad_masks.shape[0] == 1 and bsize > 1:
+            # .expand() creates a view without copying memory
+            prefix_pad_masks = prefix_pad_masks.expand(bsize, *prefix_pad_masks.shape[1:])
+        if past_key_values is not None and bsize > 1:
+            # Check if the cache batch size needs expanding (looking at the first layer's keys)
+            if past_key_values.key_cache[0].shape[0] == 1:
+                expanded_cache = copy.copy(past_key_values)
 
-                    # Analytic gradient: dL/dv = (1 - t) * residual
-                    grad_vel = (1.0 - expanded_time.reshape(expanded_time.shape[0], 1, 1)) * residual  # same shape as action_vel
+                # Expand batch dimension for keys and values across all layers
+                expanded_cache.key_cache = [
+                    k.expand(bsize, *k.shape[1:]) for k in past_key_values.key_cache
+                ]
+                expanded_cache.value_cache = [
+                    v.expand(bsize, *v.shape[1:]) for v in past_key_values.value_cache
+                ]
 
-                    # # Disable guidance on the last action dimension (e.g., gripper)
-                    if not gripper_guidance:
-                        grad_vel[..., -1] = 0.0 # Disable right gripper guidance
-                        grad_vel[..., 6] = 0.0 # Disable left gripper guidance
+                past_key_values = expanded_cache
+        while time >= -dt / 2:
+            expanded_time = time.expand(bsize)
+            v_t = self.denoise_step(
+                prefix_pad_masks,
+                past_key_values,
+                x_t,
+                expanded_time,
+            )
+            # Apply Reconstruction Guidance
+            if use_guidance:
+                # pi05 convention: x_t = t*noise + (1-t)*data, v_t = noise - data, t: 1→0
+                # Clean estimate: x_t - t*v_t  (maps from working model's x_t + (1-t)*v_t via t_pi05=1-t_work, v_pi05=-v_work)
+                t_coef = expanded_time.reshape(expanded_time.shape[0], 1, 1)
+                clean_x_t_hat = x_t - t_coef * v_t
+                residual = F.pad(clean_x_t_hat[..., :guidance_actions.shape[-1]] - guidance_actions, (0, 18), mode="constant", value=0.0) # [bsz, H, A]
 
-                    # Apply guidance
-                    v_t = v_t - guidance_scale * grad_vel
-                x_t = x_t + dt * v_t
-                time += dt
-            all_actions.append(x_t)
+                # Analytic gradient: dL/dv_t = -t * residual  (v_t sign flip gives negative of working model's (1-t)*residual)
+                grad_vel = -t_coef * residual  # same shape as action_vel
 
-        # Stack all samples: [num_samples, batch_size, horizon_steps, action_dim]
-        all_actions = torch.stack(all_actions, dim=0)
+                # Disable guidance on the last action dimension (e.g., gripper)
+                if not gripper_guidance:
+                    grad_vel[..., -1] = 0.0 # Disable right gripper guidance
+                    grad_vel[..., 6] = 0.0 # Disable left gripper guidance
 
-        # If only 1 sample, return original shape [batch_size, horizon_steps, action_dim]
-        if num_samples == 1:
-            return all_actions[0]
-        else:
-            # Return [num_samples, batch_size, horizon_steps, action_dim]
-            raise NotImplementedError("Multiple samples return in the incorrect shape.")
-            return all_actions
+                # Apply guidance: v_t = v_t - scale * (-t * residual) = v_t + scale * t * residual
+                v_t = v_t - guidance_scale * grad_vel
+            x_t = x_t + dt * v_t
+            time += dt
+
+        return x_t # [batch_size, horizon_steps, action_dim]
 
     @torch.no_grad()  # see openpi `sample_actions` (slightly adapted)
     def sample_actions_and_get_feature(self, images, img_masks, tokens, masks, noise=None, num_steps=None) -> Tensor:
