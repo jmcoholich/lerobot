@@ -12,7 +12,7 @@ import numpy as np
 import pickle
 
 # Debug flag allows inference without connecting to the robot
-DEBUG = True
+DEBUG = False
 class FrankaRobot(Robot):
     config_class = FrankaConfig
     name = "franka"

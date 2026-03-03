@@ -20,6 +20,8 @@ import math
 from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+import cv2
+import numpy as np
 
 import torch
 import torch.nn.functional as F  # noqa: N812
@@ -1265,7 +1267,22 @@ class PI05PolicyTaco(PreTrainedPolicy):
         """Select a single action given environment observations."""
         self.eval()
 
-        guidance_action = get_guidance_action_from_text("rotate_cw", postprocessor=postprocessor, robot=robot)
+        guidance_action_1 = get_guidance_action_from_text("up", postprocessor=postprocessor, robot=robot)
+        guidance_action_2 = get_guidance_action_from_text("right", postprocessor=postprocessor, robot=robot)
+        guidance_action_3 = get_guidance_action_from_text("backward", postprocessor=postprocessor, robot=robot)
+        guidance_action = torch.cat([guidance_action_1, guidance_action_2, guidance_action_3], dim=0)
+        # TODO save all input args to pkl file
+        import pickle
+        with open("input_args_4.pkl", "wb") as f:
+            pickle.dump((batch['observation.images.camera_front'], postprocessor, guidance_action), f)
+        breakpoint()
+        visualize_trajectories_on_camera(
+            batch['observation.images.camera_front'],
+            guidance_action,
+            actions_are_normalized=True,
+            postprocessor=postprocessor,
+            )
+
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
             actions = self.predict_action_chunk(batch, guidance_actions=guidance_action, guidance_scale=1.0)[:, : self.config.n_action_steps]
@@ -1369,3 +1386,210 @@ class PI05PolicyTaco(PreTrainedPolicy):
         }
 
         return loss, loss_dict
+
+
+def visualize_trajectories_on_camera(image_tensor, action, actions_are_normalized=False, postprocessor=None, name="test"):
+    padding = 0  # TODO
+    if actions_are_normalized:
+        q01 = postprocessor.steps[0].stats['action']['q01']
+        q99 = postprocessor.steps[0].stats['action']['q99']
+        denom = q99 - q01
+        # chunk = 2.0 * (chunk - q01) / denom - 1.0
+        action = (action + 1.0) / 2.0 * denom + q01
+    predefined_colors = [
+            (0, 0, 255),    # Red
+            (0, 165, 255),  # Orange
+            (255, 0, 0),    # Blue
+            (255, 255, 0),  # Cyan
+            (255, 0, 255),  # Magenta
+        ]
+    # save the image tensor as an image file
+    assert image_tensor.shape[0] == 1 # batch size 1
+    image_np = (image_tensor[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
+    image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+    image_np = np.pad(image_np, ((padding, padding), (padding, padding), (0, 0)), mode='constant', constant_values=0)
+    extrinsic, intrinsic = apriltag2cam(padding=padding)
+    for i in range(action.shape[0]):
+        traj_color = predefined_colors[i % len(predefined_colors)]
+        points_2D, depths = project_3d_to_2d(action[i, :, :3], extrinsic, intrinsic)
+        draw_lines(points_2D, image_np, depths > 0, traj_color)
+    cv2.imwrite(f"{name}.png", image_np)
+
+
+def draw_lines(points_2d, img, valid_mask, traj_color):
+    line_thickness = 1
+    last_valid_idx = None
+    second_last_valid_idx = None
+
+    for j in range(len(points_2d)):
+        if not valid_mask[j]:
+            continue
+
+        x, y = int(points_2d[j, 0]), int(points_2d[j, 1])
+
+        # Check if point is within image bounds
+        if 0 <= x < img.shape[1] and 0 <= y < img.shape[0]:
+            # if j == 0 and i == 0:  # Only draw current position once
+            if j == 0:
+                # Current position - larger circle with white outline
+                cv2.circle(img, (x, y), 4, (0, 255, 0), -1)
+                cv2.circle(img, (x, y), 5, (255, 255, 255), 2)
+                pass
+            elif j > 0:
+                # Future positions
+                pass
+                cv2.circle(img, (x, y), 2, traj_color, -1)
+
+            # Track valid points for arrow head
+            second_last_valid_idx = last_valid_idx
+            last_valid_idx = j
+
+        # Draw line connecting points
+        if j > 0 and valid_mask[j-1]:
+            x_prev, y_prev = int(points_2d[j-1, 0]), int(points_2d[j-1, 1])
+            if (0 <= x_prev < img.shape[1] and 0 <= y_prev < img.shape[0] and
+                0 <= x < img.shape[1] and 0 <= y < img.shape[0]):
+                cv2.line(img, (x_prev, y_prev), (x, y), traj_color, line_thickness)
+
+    # Draw arrow head at the end of trajectory
+    if last_valid_idx is not None and second_last_valid_idx is not None:
+        x_last, y_last = int(points_2d[last_valid_idx, 0]), int(points_2d[last_valid_idx, 1])
+        x_prev, y_prev = int(points_2d[second_last_valid_idx, 0]), int(points_2d[second_last_valid_idx, 1])
+
+        if (0 <= x_last < img.shape[1] and 0 <= y_last < img.shape[0]):
+            # Calculate arrow direction
+            dx = x_last - x_prev
+            dy = y_last - y_prev
+            length = np.sqrt(dx**2 + dy**2)
+
+            if length > 0:
+                # Normalize direction
+                dx /= length
+                dy /= length
+
+                # Arrow head parameters
+                arrow_length = 15
+                arrow_angle = np.pi / 6  # 30 degrees
+
+                # Calculate arrow head points
+                arrow_tip = (x_last, y_last)
+                arrow_left = (
+                    int(x_last - arrow_length * (dx * np.cos(arrow_angle) + dy * np.sin(arrow_angle))),
+                    int(y_last - arrow_length * (dy * np.cos(arrow_angle) - dx * np.sin(arrow_angle)))
+                )
+                arrow_right = (
+                    int(x_last - arrow_length * (dx * np.cos(arrow_angle) - dy * np.sin(arrow_angle))),
+                    int(y_last - arrow_length * (dy * np.cos(arrow_angle) + dx * np.sin(arrow_angle)))
+                )
+
+                # Draw arrow head as a filled triangle
+                pts = np.array([arrow_tip, arrow_left, arrow_right], np.int32)
+                cv2.fillPoly(img, [pts], traj_color)
+                cv2.polylines(img, [pts], True, traj_color, line_thickness)
+
+
+def apriltag2cam(padding=0):
+    cam2tag =  np.array([
+        [
+            0.9999778383080971,
+            -0.006500179334239067,
+            -0.001438944504774469,
+            0.2861472831363136
+        ],
+        [
+            0.004474176703044461,
+            0.8161981776784388,
+            -0.5777547200129354,
+            -0.20468220828091388
+        ],
+        [
+            0.004929973173864486,
+            0.5777354778988548,
+            0.8162091722968363,
+            1.5051559145448294
+        ],
+        [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+        ]
+    ])
+    robot2tag = np.eye(4)
+
+    tag_size = 0.099
+    # Move to surface of robot base. aligned with front tip. 3 cm off the ground. 2.3 cm from the side
+    tag_translation = np.array([
+        0.225 / 2.0 + 0.005,  # add width of clipboard and screws offset
+        .508 / 2.0 -0.006 - tag_size / 5 + tag_size / 2.0,
+        -0.14 / 2.0 + (tag_size * 9/5 / 2) + 0.043 - tag_size / 5,
+        ])
+    tag_translation[2] = 0.15  # from trial-and-error based on image results
+    tag_translation[0] -= 0.01  # from trial-and-error based on image results
+    robot2tag[:3, 3] = tag_translation
+    z_correction = np.array([
+            [ 0.9990482, -0.0436194,  0.0],
+            [ 0.0436194,  0.9990482,  0.0],
+            [ 0.0,        0.0,        1.0]
+        ]) # from trial-and-error based on image results (2.5 deg about world z)
+    # the rotation from robot frame to tag frame is [-90 about y] @ [90 about z (intrinsic)]
+    robot2tag[:3, :3] = z_correction @ np.array([[0, 0, -1],
+                                [1, 0, 0],
+                                [0, -1, 0]])
+
+    # ================================================================================
+    # Do the actual transformation to get camera position from tag
+    robot2cam = robot2tag @ np.linalg.inv(cam2tag)
+    extrinsic = np.linalg.inv(robot2cam)
+
+    # ================================================================================
+    # set correct camera instrinsics
+    f = 456.432495117187 # for 360 x 360 img
+    intrinsic = np.array([[f, 0.0, 320.0 + padding],[0.0, f, 180.0 + padding],[0.0, 0.0, 1.0]])
+    return extrinsic, intrinsic
+
+
+def project_3d_to_2d(points_3d, extrinsic, intrinsic):
+    """
+    Project 3D points in world coordinates to 2D pixel coordinates.
+
+    Args:
+        points_3d: (N, 3) array of 3D points in world coordinates
+        extrinsic: (4, 4) camera extrinsic matrix [R|t]
+        intrinsic: (3, 3) camera intrinsic matrix
+
+    Returns:
+        points_2d: (N, 2) array of 2D pixel coordinates
+        depths: (N,) array of depths (for filtering points behind camera)
+    """
+    # Convert to homogeneous coordinates
+    points_3d_homo = np.concatenate([points_3d, np.ones((len(points_3d), 1))], axis=1)
+
+    # Transform to camera coordinates
+    points_cam = (extrinsic @ points_3d_homo.T).T
+
+    # Extract x, y, z in camera frame
+    x_cam = points_cam[:, 0]
+    y_cam = points_cam[:, 1]
+    z_cam = points_cam[:, 2]
+
+    # Project to image plane using intrinsics
+    points_2d_homo = (intrinsic @ points_cam[:, :3].T).T
+
+    # Normalize by depth
+    points_2d = points_2d_homo[:, :2] / points_2d_homo[:, 2:3]
+
+    return points_2d, z_cam
+
+if __name__ == "__main__":
+    import pickle
+    for i in range(5):
+        with open(f"input_args_{i}.pkl", "rb") as f:
+            imgs, postprocessor, actions = pickle.load(f)
+        visualize_trajectories_on_camera(
+            imgs,
+            actions,
+            postprocessor=postprocessor,
+            actions_are_normalized=True,
+            name=f"test_{i}_new_fix"
+            )

@@ -504,7 +504,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
         if teleop is not None:
             teleop.connect()
 
-        listener, events = init_keyboard_listener()
+        listener, events = init_keyboard_listener(enabled=False)
 
         with VideoEncodingManager(dataset):
             recorded_episodes = 0
