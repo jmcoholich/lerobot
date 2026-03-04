@@ -47,6 +47,7 @@ from lerobot.utils.constants import (
     OBS_LANGUAGE_TOKENS,
     OPENPI_ATTENTION_MASK_VALUE,
 )
+import sys
 
 from safetensors.torch import load_file
 
@@ -814,8 +815,12 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
                 # Clean estimate: x_t - t*v_t  (maps from working model's x_t + (1-t)*v_t via t_pi05=1-t_work, v_pi05=-v_work)
                 t_coef = expanded_time.reshape(expanded_time.shape[0], 1, 1)
                 clean_x_t_hat = x_t - t_coef * v_t
-                residual = F.pad(clean_x_t_hat[..., :guidance_actions.shape[-1]] - guidance_actions, (0, 18), mode="constant", value=0.0) # [bsz, H, A]
-
+                residual = clean_x_t_hat[..., :guidance_actions.shape[-1]] - guidance_actions
+                residual = F.pad(
+                    residual, (0, 24),
+                    mode="constant",
+                    value=0.0,
+                    ) # [bsz, H, A]
                 # Analytic gradient: dL/dv_t = -t * residual  (v_t sign flip gives negative of working model's (1-t)*residual)
                 grad_vel = -t_coef * residual  # same shape as action_vel
 
@@ -1272,27 +1277,32 @@ class PI05PolicyTaco(PreTrainedPolicy):
         """Select a single action given environment observations."""
         self.eval()
 
-        guidance_action_1 = get_guidance_action_from_text("up", postprocessor=postprocessor, robot=robot)
-        guidance_action_2 = get_guidance_action_from_text("right", postprocessor=postprocessor, robot=robot)
-        guidance_action_3 = get_guidance_action_from_text("backward", postprocessor=postprocessor, robot=robot)
-        guidance_action = torch.cat([guidance_action_1, guidance_action_2, guidance_action_3], dim=0)
-        # TODO save all input args to pkl file
-        import pickle
-        with open("input_args_4.pkl", "wb") as f:
-            pickle.dump((batch['observation.images.camera_front'], postprocessor, guidance_action), f)
-        breakpoint()
-        visualize_trajectories_on_camera(
-            batch['observation.images.camera_front'],
-            guidance_action,
-            actions_are_normalized=True,
-            postprocessor=postprocessor,
-            )
 
+        # guidance_action_1 = get_guidance_action_from_text("up", postprocessor=postprocessor, robot=robot)
+        # guidance_action_2 = get_guidance_action_from_text("right", postprocessor=postprocessor, robot=robot)
+        # guidance_action_3 = get_guidance_action_from_text("backward", postprocessor=postprocessor, robot=robot)
+        # guidance_action = torch.cat([guidance_action_1, guidance_action_2, guidance_action_3], dim=0)
+        # import pickle
+        # with open("input_args_4.pkl", "wb") as f:
+        #     pickle.dump((batch['observation.images.camera_front'], postprocessor, guidance_action), f)
+        # breakpoint()
+        # visualize_trajectories_on_camera(
+        #     batch['observation.images.camera_front'],
+        #     guidance_action,
+        #     actions_are_normalized=True,
+        #     postprocessor=postprocessor,
+        #     )
+        # guidance_action = None
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
-            actions = self.predict_action_chunk(batch, guidance_actions=guidance_action, guidance_scale=1.0)[:, : self.config.n_action_steps]
-            actions[:] = guidance_action
-            print("guidance_action:", guidance_action)
+            guidance_action = get_guidance_action_from_text("right", postprocessor=postprocessor, robot=robot)
+            print("guidance_action:", guidance_action, file=sys.stderr)
+            actions = self.predict_action_chunk(
+                batch,
+                guidance_actions=guidance_action,
+                guidance_scale=40.0)[:, :self.config.n_action_steps]
+            # actions[:] = guidance_action
+            # print("guidance_action:", guidance_action)
             # Transpose to get shape (n_action_steps, batch_size, action_dim)
             self._action_queue.extend(actions.transpose(0, 1))
 
@@ -1316,8 +1326,17 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
         # import ipdb;ipdb.set_trace()
         # Sample actions using the model (no separate state needed for PI05)
-        actions = self.model.sample_actions(images, img_masks, tokens, masks, num_samples=num_samples, guidance_actions=guidance_actions, guidance_scale=guidance_scale, gripper_guidance=gripper_guidance)
-
+        actions = self.model.sample_actions(
+            images,
+            img_masks,
+            tokens,
+            masks,
+            num_samples=num_samples,
+            guidance_actions=guidance_actions,
+            guidance_scale=guidance_scale,
+            gripper_guidance=gripper_guidance,
+            )
+        print("Normalized actions:", actions.cpu().numpy(), file=sys.stderr)
         # ipdb.set_trace()
         # Unpad actions to actual action dimension
         original_action_dim = self.config.output_features[ACTION].shape[0]

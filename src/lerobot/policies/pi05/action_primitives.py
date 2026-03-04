@@ -29,6 +29,24 @@ LABEL2ACTION = {
     "rotate_cw": ROTATE_CW
 }
 
+
+def _canonicalize_quat_first_positive(quat: np.ndarray) -> np.ndarray:
+    """Normalize quaternion and keep it in a fixed sign hemisphere.
+
+    Training data effectively uses a consistent sign convention. Enforce the same
+    convention during guidance generation so normalization does not explode.
+    """
+    quat = np.asarray(quat, dtype=np.float32).reshape(4)
+    norm = np.linalg.norm(quat)
+    if norm < 1e-8:
+        raise ValueError("Quaternion norm is too small to normalize.")
+    quat = quat / norm
+    # Keep the first quaternion component non-negative to match training convention.
+    if quat[0] < 0.0:
+        quat = -quat
+    return quat
+
+
 def get_guidance_action_from_text(label, postprocessor, robot):
     if label not in LABEL2ACTION:
         raise ValueError(f"Label '{label}' not found in LABEL2ACTION mapping.")
@@ -48,13 +66,17 @@ def create_cartesian_chunk(primitive, robot):
         pos = np.array([[0.45868], [0.03165], [0.26477]])
     else:
         quat, pos = robot.operator.robot_interface.last_eef_quat_and_pos
-    primitive = torch.tensor(primitive)
+    quat = _canonicalize_quat_first_positive(quat)
+    primitive = torch.as_tensor(primitive, dtype=torch.float32)
     output = torch.zeros(1, CHUNK_SIZE, 8)
     output[0, :, 3:7] = torch.from_numpy(quat)  # unchanged
     aa_chunk = torch.arange(CHUNK_SIZE).reshape(CHUNK_SIZE, 1) * primitive[3:6].reshape(1, 3)
     for i in range(CHUNK_SIZE):
-        delta_quat = axisangle2quat(aa_chunk[i])
-        output[0, i, 3:7] = torch.from_numpy(quat_multiply(delta_quat, output[0, i, 3:7]))
+        delta_quat = axisangle2quat(aa_chunk[i].cpu().numpy())
+        base_quat = output[0, i, 3:7].cpu().numpy()
+        step_quat = quat_multiply(delta_quat, base_quat)
+        step_quat = _canonicalize_quat_first_positive(step_quat)
+        output[0, i, 3:7] = torch.from_numpy(step_quat)
     output[0, :, :3] = torch.from_numpy(pos).squeeze()
     output[0, :, :3] += torch.arange(CHUNK_SIZE).reshape(CHUNK_SIZE, 1) * primitive[:3].reshape(1, 3)
     output[0, :, 7] = GRIPPER_ACTION

@@ -10,6 +10,13 @@ import os
 from easydict import EasyDict
 import numpy as np
 import pickle
+import sys
+
+np.set_printoptions(
+    suppress=True,      # disable scientific notation
+    threshold=np.inf,   # never summarize with ...
+    linewidth=np.inf    # prevent line wrapping (optional)
+)
 
 # Debug flag allows inference without connecting to the robot
 DEBUG = False
