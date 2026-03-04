@@ -1316,30 +1316,48 @@ class PI05PolicyTaco(PreTrainedPolicy):
         # guidance_action = None
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
-            guidance_action = get_guidance_action_from_text("right", postprocessor=postprocessor, robot=robot)
-            guidance_action = None
+            intervention_freq = 2
             consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
-            actions = self.predict_action_chunk(
-                batch,
-                num_samples=5,
-                guidance_actions=guidance_action,
-                guidance_scale=40.0,
-                consistency_guidance=consistency_guidance_action,
-                )
-            actions = actions[:, :self.config.n_action_steps]
-            visualize_trajectories_on_camera(
-                batch['observation.images.camera_front'],
-                actions.cpu().numpy()[:, ::10],
-                actions_are_normalized=True,
-                postprocessor=postprocessor,
-                name=f"predicted_actions_{self.count}",
-                wrist_img=batch['observation.images.camera_wrist'],
-                )
+            guidance_scale = 40.0
+            print(f"\nGenerating action chunk number {self.count}")
+            if self.count % intervention_freq == 1:  # intervene
+                print(f"Intervention step...")
+                actions = self.predict_action_chunk(
+                    batch,
+                    num_samples=5,
+                    guidance_actions=None,
+                    guidance_scale=None,
+                    consistency_guidance=consistency_guidance_action,
+                    )
+                # TODO action selection code
+                visualize_trajectories_on_camera(
+                    batch['observation.images.camera_front'],
+                    actions.cpu().numpy()[:, ::10],
+                    actions_are_normalized=True,
+                    postprocessor=postprocessor,
+                    name=f"predicted_actions_{self.count}",
+                    wrist_img=batch['observation.images.camera_wrist'],
+                    )
+                guidance_action = actions[0:1]
+                # guidance_action = get_guidance_action_from_text("right", postprocessor=postprocessor, robot=robot)
+                # TODO ensembling
+                actions = self.predict_action_chunk(
+                    batch,
+                    num_samples=1,
+                    guidance_actions=guidance_action,
+                    guidance_scale=guidance_scale,
+                    consistency_guidance=None,
+                    )
+            else:  # no intervention
+                print(f"No intervention ...")
+                actions = self.predict_action_chunk(
+                    batch,
+                    num_samples=1,
+                    guidance_actions=None,
+                    guidance_scale=guidance_scale,
+                    consistency_guidance=consistency_guidance_action,
+                    )
             self.count += 1
-            # actions[:] = guidance_action
-            # print("guidance_action:", guidance_action)
-            # Transpose to get shape (n_action_steps, batch_size, action_dim)
-            actions = actions[0:1]
             self._action_queue.extend(actions.transpose(0, 1))
 
         return self._action_queue.popleft()
@@ -1382,7 +1400,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         original_action_dim = self.config.output_features[ACTION].shape[0]
         actions = actions[..., :original_action_dim]
 
-        return actions
+        return actions[:, :self.config.n_action_steps]
 
     @torch.no_grad()
     def predict_action_chunk_and_get_feature(self, batch: dict[str, Tensor], noise: Tensor = None) -> Tensor:
