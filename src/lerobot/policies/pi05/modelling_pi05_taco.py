@@ -28,7 +28,7 @@ import torch.nn.functional as F  # noqa: N812
 from torch import Tensor, nn
 
 from lerobot.utils.import_utils import _transformers_available
-from lerobot.policies.pi05.action_primitives import get_guidance_action_from_text
+from lerobot.policies.pi05.action_primitives import get_guidance_action_from_text, get_consistency_guidance
 
 assert _transformers_available, "Transformers library is required for modeling_pi05.py"
 from transformers.models.auto import CONFIG_MAPPING
@@ -745,6 +745,7 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         guidance_actions: torch.FloatTensor = None,
         guidance_scale: float = 1.0,
         gripper_guidance: bool = True,
+        consistency_guidance: torch.FloatTensor = None,
     ) -> Tensor:
         """Do a full inference forward and compute the action."""
         if num_steps is None:
@@ -832,6 +833,24 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
 
                 # Apply guidance: v_t = v_t - scale * (-t * residual) = v_t + scale * t * residual
                 v_t = v_t - guidance_scale * grad_vel
+            elif consistency_guidance is not None:
+                consistency_guidance = consistency_guidance.to(device=device, dtype=torch.float32)
+                # pi05 convention: x_t = t*noise + (1-t)*data, v_t = noise - data, t: 1→0
+                # Clean estimate: x_t - t*v_t  (maps from working model's x_t + (1-t)*v_t via t_pi05=1-t_work, v_pi05=-v_work)
+                t_coef = expanded_time.reshape(expanded_time.shape[0], 1, 1)
+                clean_x_t_hat = x_t - t_coef * v_t
+                chunk_size = clean_x_t_hat.shape[1]
+                residual = clean_x_t_hat[:, 0:1, :7] - consistency_guidance  # exclude gripper, only guide first action in chunk
+                residual = F.pad(
+                    residual, (0, 25, 0, chunk_size - 1),
+                    mode="constant",
+                    value=0.0,
+                    ) # [bsz, H, A]
+                # Analytic gradient: dL/dv_t = -t * residual  (v_t sign flip gives negative of working model's (1-t)*residual)
+                grad_vel = -t_coef * residual  # same shape as action_vel
+
+                # Apply guidance: v_t = v_t - scale * (-t * residual) = v_t + scale * t * residual
+                v_t = v_t - 40.0 * grad_vel  # hardcode guidance scale to 40
             x_t = x_t + dt * v_t
             time += dt
 
@@ -1299,11 +1318,14 @@ class PI05PolicyTaco(PreTrainedPolicy):
         if len(self._action_queue) == 0:
             guidance_action = get_guidance_action_from_text("right", postprocessor=postprocessor, robot=robot)
             guidance_action = None
+            consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
             actions = self.predict_action_chunk(
                 batch,
                 num_samples=5,
                 guidance_actions=guidance_action,
-                guidance_scale=40.0)
+                guidance_scale=40.0,
+                consistency_guidance=consistency_guidance_action,
+                )
             actions = actions[:, :self.config.n_action_steps]
             visualize_trajectories_on_camera(
                 batch['observation.images.camera_front'],
@@ -1330,9 +1352,12 @@ class PI05PolicyTaco(PreTrainedPolicy):
         guidance_actions: torch.FloatTensor = None,
         guidance_scale: float = 1.0,
         gripper_guidance: bool = True,
+        consistency_guidance: torch.FloatTensor = None,
     ) -> Tensor:
         """Predict a chunk of actions given environment observations."""
         self.eval()
+        if consistency_guidance is not None and guidance_actions is not None:
+            raise RuntimeError("Currently don't support both consistency guidance and regular guidance")
 
         # Prepare inputs
         images, img_masks = self._preprocess_images(batch)
@@ -1349,6 +1374,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             guidance_actions=guidance_actions,
             guidance_scale=guidance_scale,
             gripper_guidance=gripper_guidance,
+            consistency_guidance=consistency_guidance,
             )
         # print("Normalized actions:", actions.cpu().numpy(), file=sys.stderr)
         # ipdb.set_trace()
@@ -1458,7 +1484,7 @@ def visualize_trajectories_on_camera(
     for i in range(action.shape[0]):
         traj_color = predefined_colors[i % len(predefined_colors)]
         points_2D, depths = project_3d_to_2d(action[i, :, :3], extrinsic, intrinsic)
-        draw_lines(points_2D, image_np, depths > 0, traj_color)
+        draw_lines(points_2D, image_np, depths > 0, traj_color, i==0)
     # Add legend with color names
     color_names = ["Red", "Orange", "Blue", "Cyan", "Magenta"]
     legend_y = 30
@@ -1475,7 +1501,7 @@ def visualize_trajectories_on_camera(
         cv2.imwrite(f"{name}_wrist.png", cv2.cvtColor(wrist_np, cv2.COLOR_RGB2BGR))
 
 
-def draw_lines(points_2d, img, valid_mask, traj_color):
+def draw_lines(points_2d, img, valid_mask, traj_color, first_traj):
     line_thickness = 1
     last_valid_idx = None
     second_last_valid_idx = None
@@ -1489,7 +1515,7 @@ def draw_lines(points_2d, img, valid_mask, traj_color):
         # Check if point is within image bounds
         if 0 <= x < img.shape[1] and 0 <= y < img.shape[0]:
             # if j == 0 and i == 0:  # Only draw current position once
-            if j == 0:
+            if j == 0 and first_traj:
                 # Current position - larger circle with white outline
                 cv2.circle(img, (x, y), 4, (0, 255, 0), -1)
                 cv2.circle(img, (x, y), 5, (255, 255, 255), 2)

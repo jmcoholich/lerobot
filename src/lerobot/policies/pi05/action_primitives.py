@@ -17,6 +17,7 @@ UP = (-DES_TRANSLATION / CHUNK_SIZE, 0.0, 0.0, 0.0, 0.0, 0.0, GRIPPER_ACTION)
 DOWN = (DES_TRANSLATION / CHUNK_SIZE, 0.0, 0.0, 0.0, 0.0, 0.0, GRIPPER_ACTION)
 ROTATE_CCW = (0.0, 0.0, 0.0, 0.0, 0.0, DES_ROTATION / CHUNK_SIZE, GRIPPER_ACTION)
 ROTATE_CW = (0.0, 0.0, 0.0, 0.0, 0.0, -DES_ROTATION / CHUNK_SIZE, GRIPPER_ACTION)
+IN_PLACE = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, GRIPPER_ACTION)
 
 LABEL2ACTION = {
     "up": BACKWARD,
@@ -58,6 +59,20 @@ def get_guidance_action_from_text(label, postprocessor, robot):
     denom = q99 - q01
     chunk = 2.0 * (chunk - q01) / denom - 1.0
     return chunk
+
+
+def get_consistency_guidance(postprocessor, robot):
+    action_primitive = torch.tensor(IN_PLACE, dtype=torch.float32)
+    # chunk = rotate_to_robot_frame(chunk, robot)
+    chunk = create_cartesian_chunk(action_primitive, robot)
+    q01 = postprocessor.steps[0].stats['action']['q01']
+    q99 = postprocessor.steps[0].stats['action']['q99']
+    denom = q99 - q01
+    chunk = 2.0 * (chunk - q01) / denom - 1.0
+    chunk = chunk[..., :-1]  # chop off the gripper dimension
+    chunk = chunk[:, 0:1]  # only take the first action
+    return chunk
+
 
 def create_cartesian_chunk(primitive, robot):
     """Creates a chunk of absolute eef pose actions"""
