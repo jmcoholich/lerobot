@@ -1311,6 +1311,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                 actions_are_normalized=True,
                 postprocessor=postprocessor,
                 name=f"predicted_actions_{self.count}",
+                wrist_img=batch['observation.images.camera_wrist'],
                 )
             self.count += 1
             # actions[:] = guidance_action
@@ -1349,7 +1350,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             guidance_scale=guidance_scale,
             gripper_guidance=gripper_guidance,
             )
-        print("Normalized actions:", actions.cpu().numpy(), file=sys.stderr)
+        # print("Normalized actions:", actions.cpu().numpy(), file=sys.stderr)
         # ipdb.set_trace()
         # Unpad actions to actual action dimension
         original_action_dim = self.config.output_features[ACTION].shape[0]
@@ -1425,7 +1426,14 @@ class PI05PolicyTaco(PreTrainedPolicy):
         return loss, loss_dict
 
 
-def visualize_trajectories_on_camera(image_tensor, action, actions_are_normalized=False, postprocessor=None, name="test"):
+def visualize_trajectories_on_camera(
+    image_tensor,
+    action,
+    actions_are_normalized=False,
+    postprocessor=None,
+    name="test",
+    wrist_img=None,
+    ):
     padding = 0
     if actions_are_normalized:
         q01 = postprocessor.steps[0].stats['action']['q01']
@@ -1457,9 +1465,14 @@ def visualize_trajectories_on_camera(image_tensor, action, actions_are_normalize
     for i, color in enumerate(predefined_colors):
         cv2.circle(image_np, (30, legend_y), 6, color, -1)
         cv2.putText(image_np, color_names[i], (45, legend_y + 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         legend_y += 25
     cv2.imwrite(f"{name}.png", image_np)
+
+    if wrist_img is not None:
+        assert wrist_img.shape[0] == 1  # batch size 1
+        wrist_np = (wrist_img[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
+        cv2.imwrite(f"{name}_wrist.png", cv2.cvtColor(wrist_np, cv2.COLOR_RGB2BGR))
 
 
 def draw_lines(points_2d, img, valid_mask, traj_color):
