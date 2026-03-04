@@ -51,6 +51,93 @@ import sys
 import copy
 
 from safetensors.torch import load_file
+from .vlm_client import VLMClient
+from PIL import Image, ImageDraw, ImageFont
+# ssh -N -f -L localhost:60721:localhost:60721 -J jcoholich3@sky1.cc.gatech.edu jcoholich3@optimistprime.cc.gatech.edu
+VLLM_SERVERS=(
+    "http://optimistprime.cc.gatech.edu:60721",
+    "http://clippy.cc.gatech.edu:44273",
+    "http://shakey.cc.gatech.edu:34825",
+    "http://cheetah.cc.gatech.edu:33683",
+    "http://ig-88.cc.gatech.edu:44219",
+)
+
+TRAJ_COLORS = (
+        (0, 0, 255),    # Red
+        (0, 165, 255),  # Orange
+        (255, 0, 0),    # Blue
+        (255, 255, 0),  # Cyan
+        (255, 0, 255),  # Magenta
+)
+TRAJ_COLOR_NAMES =(
+    "Red",
+    "Orange",
+    "Blue",
+    "Cyan",
+    "Magenta",
+)
+
+import random
+
+
+def color2idx(color):
+    """Maps a color string like 'blue' to TRAJ_COLOR_NAMES index """
+    try:
+        return TRAJ_COLOR_NAMES.index(color.capitalize())
+    except ValueError:
+        raise ValueError(f"Color '{color}' is not in the list of valid trajectory colors.")
+
+
+def save_VLM_io(pil_img: Image.Image, generated_text: str, count: int, output_dir: str | Path = "vlm_io") -> Path:
+    """Save an image with VLM output text rendered below it."""
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    image = pil_img.convert("RGB")
+    font = ImageFont.load_default()
+    margin = 12
+    line_spacing = 4
+    max_text_width = max(1, image.width - (2 * margin))
+
+    header = f"Count: {count}"
+    body = generated_text.strip() if generated_text else ""
+    combined_text = header if not body else f"{header}\n{body}"
+
+    measure_draw = ImageDraw.Draw(image)
+    lines: list[str] = []
+    for paragraph in combined_text.splitlines() or [""]:
+        paragraph = paragraph.strip()
+        if not paragraph:
+            lines.append("")
+            continue
+        words = paragraph.split()
+        current_line = words[0]
+        for word in words[1:]:
+            candidate = f"{current_line} {word}"
+            if measure_draw.textlength(candidate, font=font) <= max_text_width:
+                current_line = candidate
+            else:
+                lines.append(current_line)
+                current_line = word
+        lines.append(current_line)
+
+    line_bbox = measure_draw.textbbox((0, 0), "Ag", font=font)
+    line_height = max(1, line_bbox[3] - line_bbox[1])
+    text_height = (2 * margin) + (len(lines) * line_height) + (max(0, len(lines) - 1) * line_spacing)
+
+    canvas = Image.new("RGB", (image.width, image.height + text_height), color=(255, 255, 255))
+    canvas.paste(image, (0, 0))
+
+    draw = ImageDraw.Draw(canvas)
+    y_pos = image.height + margin
+    for line in lines:
+        draw.text((margin, y_pos), line, fill=(0, 0, 0), font=font)
+        y_pos += line_height + line_spacing
+
+    save_path = output_path / f"vlm_io_{count:06d}.png"
+    canvas.save(save_path, format="PNG")
+    return save_path
+
 
 def get_safe_dtype(target_dtype, device_type):
     """Get a safe dtype for the given device type."""
@@ -1068,6 +1155,9 @@ class PI05PolicyTaco(PreTrainedPolicy):
         self.count = 0
 
         self.reset()
+        self.vlm_client = VLMClient(server_url="http://127.0.0.1:60721")
+        with open("/home/jeremiah/lerobot/src/lerobot/policies/pi05/vlm_prompt_template.txt", "r") as f:
+            self.text_prompt_template = f.readlines()
 
     @classmethod
     def from_pretrained(
@@ -1316,29 +1406,42 @@ class PI05PolicyTaco(PreTrainedPolicy):
         # guidance_action = None
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
-            intervention_freq = 2
+            intervention_period = 1
             consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
             guidance_scale = 40.0
+            num_trajs = 5
             print(f"\nGenerating action chunk number {self.count}")
-            if self.count % intervention_freq == 1:  # intervene
+            if self.count % intervention_period == 0:  # intervene
                 print(f"Intervention step...")
                 actions = self.predict_action_chunk(
                     batch,
-                    num_samples=5,
+                    num_samples=num_trajs,
                     guidance_actions=None,
                     guidance_scale=None,
                     consistency_guidance=consistency_guidance_action,
                     )
-                # TODO action selection code
-                visualize_trajectories_on_camera(
+                np_prompt_img = visualize_trajectories_on_camera(
                     batch['observation.images.camera_front'],
                     actions.cpu().numpy()[:, ::10],
                     actions_are_normalized=True,
                     postprocessor=postprocessor,
                     name=f"predicted_actions_{self.count}",
                     wrist_img=batch['observation.images.camera_wrist'],
+                    save_imgs=False,
                     )
-                guidance_action = actions[0:1]
+                task = batch['task'][0].split(',')[0].split(':')[1].strip()
+                text_prompt = "".join(copy.copy(self.text_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
+                pil_img = Image.fromarray(cv2.cvtColor(np_prompt_img, cv2.COLOR_BGR2RGB))
+                chosen_color, generated_text = self.vlm_client.select_trajectories(
+                    pil_img,
+                    text_prompt,
+                    num_trajs,
+                    )
+                traj_idx = color2idx(chosen_color)
+                print(f"Selected action number {traj_idx} color: {chosen_color}")
+                print(f"Reasoning: {generated_text}")
+                save_VLM_io(pil_img, generated_text, self.count)
+                guidance_action = actions[traj_idx: traj_idx + 1]
                 # guidance_action = get_guidance_action_from_text("right", postprocessor=postprocessor, robot=robot)
                 # TODO ensembling
                 actions = self.predict_action_chunk(
@@ -1477,6 +1580,7 @@ def visualize_trajectories_on_camera(
     postprocessor=None,
     name="test",
     wrist_img=None,
+    save_imgs=False,
     ):
     padding = 0
     if actions_are_normalized:
@@ -1485,13 +1589,7 @@ def visualize_trajectories_on_camera(
         denom = q99 - q01
         # chunk = 2.0 * (chunk - q01) / denom - 1.0
         action = (action + 1.0) / 2.0 * denom + q01
-    predefined_colors = [
-            (0, 0, 255),    # Red
-            (0, 165, 255),  # Orange
-            (255, 0, 0),    # Blue
-            (255, 255, 0),  # Cyan
-            (255, 0, 255),  # Magenta
-        ]
+
     # save the image tensor as an image file
     assert image_tensor.shape[0] == 1 # batch size 1
     image_np = (image_tensor[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
@@ -1500,23 +1598,24 @@ def visualize_trajectories_on_camera(
     image_np = np.pad(image_np, ((padding, padding), (padding, padding), (0, 0)), mode='constant', constant_values=0)
     extrinsic, intrinsic = apriltag2cam(padding=padding)
     for i in range(action.shape[0]):
-        traj_color = predefined_colors[i % len(predefined_colors)]
+        traj_color = TRAJ_COLORS[i]
         points_2D, depths = project_3d_to_2d(action[i, :, :3], extrinsic, intrinsic)
         draw_lines(points_2D, image_np, depths > 0, traj_color, i==0)
     # Add legend with color names
-    color_names = ["Red", "Orange", "Blue", "Cyan", "Magenta"]
     legend_y = 30
-    for i, color in enumerate(predefined_colors):
+    for i, color in enumerate(TRAJ_COLORS):
         cv2.circle(image_np, (30, legend_y), 6, color, -1)
-        cv2.putText(image_np, color_names[i], (45, legend_y + 5),
+        cv2.putText(image_np, TRAJ_COLOR_NAMES[i], (45, legend_y + 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         legend_y += 25
-    cv2.imwrite(f"{name}.png", image_np)
+    if save_imgs:
+        cv2.imwrite(f"{name}.png", image_np)
 
-    if wrist_img is not None:
+    if wrist_img is not None and save_imgs:
         assert wrist_img.shape[0] == 1  # batch size 1
         wrist_np = (wrist_img[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
         cv2.imwrite(f"{name}_wrist.png", cv2.cvtColor(wrist_np, cv2.COLOR_RGB2BGR))
+    return image_np
 
 
 def draw_lines(points_2d, img, valid_mask, traj_color, first_traj):
