@@ -48,6 +48,7 @@ from lerobot.utils.constants import (
     OPENPI_ATTENTION_MASK_VALUE,
 )
 import sys
+import copy
 
 from safetensors.torch import load_file
 
@@ -1045,6 +1046,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             self.model.gradient_checkpointing_enable()
 
         self.model.to(config.device)
+        self.count = 0
 
         self.reset()
 
@@ -1296,14 +1298,25 @@ class PI05PolicyTaco(PreTrainedPolicy):
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
             guidance_action = get_guidance_action_from_text("right", postprocessor=postprocessor, robot=robot)
-            print("guidance_action:", guidance_action, file=sys.stderr)
+            guidance_action = None
             actions = self.predict_action_chunk(
                 batch,
+                num_samples=5,
                 guidance_actions=guidance_action,
-                guidance_scale=40.0)[:, :self.config.n_action_steps]
+                guidance_scale=40.0)
+            actions = actions[:, :self.config.n_action_steps]
+            visualize_trajectories_on_camera(
+                batch['observation.images.camera_front'],
+                actions.cpu().numpy()[:, ::10],
+                actions_are_normalized=True,
+                postprocessor=postprocessor,
+                name=f"predicted_actions_{self.count}",
+                )
+            self.count += 1
             # actions[:] = guidance_action
             # print("guidance_action:", guidance_action)
             # Transpose to get shape (n_action_steps, batch_size, action_dim)
+            actions = actions[0:1]
             self._action_queue.extend(actions.transpose(0, 1))
 
         return self._action_queue.popleft()
@@ -1413,7 +1426,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
 
 def visualize_trajectories_on_camera(image_tensor, action, actions_are_normalized=False, postprocessor=None, name="test"):
-    padding = 0  # TODO
+    padding = 0
     if actions_are_normalized:
         q01 = postprocessor.steps[0].stats['action']['q01']
         q99 = postprocessor.steps[0].stats['action']['q99']
@@ -1430,6 +1443,7 @@ def visualize_trajectories_on_camera(image_tensor, action, actions_are_normalize
     # save the image tensor as an image file
     assert image_tensor.shape[0] == 1 # batch size 1
     image_np = (image_tensor[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
+    image_np = (image_np * 0.80).astype(np.uint8)  # decrease brightness to make trajectories more visible
     image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
     image_np = np.pad(image_np, ((padding, padding), (padding, padding), (0, 0)), mode='constant', constant_values=0)
     extrinsic, intrinsic = apriltag2cam(padding=padding)
@@ -1437,6 +1451,14 @@ def visualize_trajectories_on_camera(image_tensor, action, actions_are_normalize
         traj_color = predefined_colors[i % len(predefined_colors)]
         points_2D, depths = project_3d_to_2d(action[i, :, :3], extrinsic, intrinsic)
         draw_lines(points_2D, image_np, depths > 0, traj_color)
+    # Add legend with color names
+    color_names = ["Red", "Orange", "Blue", "Cyan", "Magenta"]
+    legend_y = 30
+    for i, color in enumerate(predefined_colors):
+        cv2.circle(image_np, (30, legend_y), 6, color, -1)
+        cv2.putText(image_np, color_names[i], (45, legend_y + 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        legend_y += 25
     cv2.imwrite(f"{name}.png", image_np)
 
 
@@ -1486,30 +1508,30 @@ def draw_lines(points_2d, img, valid_mask, traj_color):
             dy = y_last - y_prev
             length = np.sqrt(dx**2 + dy**2)
 
-            if length > 0:
-                # Normalize direction
-                dx /= length
-                dy /= length
+            # if length > 0:
+            #     # Normalize direction
+            #     dx /= length
+            #     dy /= length
 
-                # Arrow head parameters
-                arrow_length = 15
-                arrow_angle = np.pi / 6  # 30 degrees
+            #     # Arrow head parameters
+            #     arrow_length = 5
+            #     arrow_angle = np.pi / 6  # 30 degrees
 
-                # Calculate arrow head points
-                arrow_tip = (x_last, y_last)
-                arrow_left = (
-                    int(x_last - arrow_length * (dx * np.cos(arrow_angle) + dy * np.sin(arrow_angle))),
-                    int(y_last - arrow_length * (dy * np.cos(arrow_angle) - dx * np.sin(arrow_angle)))
-                )
-                arrow_right = (
-                    int(x_last - arrow_length * (dx * np.cos(arrow_angle) - dy * np.sin(arrow_angle))),
-                    int(y_last - arrow_length * (dy * np.cos(arrow_angle) + dx * np.sin(arrow_angle)))
-                )
+            #     # Calculate arrow head points
+            #     arrow_tip = (x_last, y_last)
+            #     arrow_left = (
+            #         int(x_last - arrow_length * (dx * np.cos(arrow_angle) + dy * np.sin(arrow_angle))),
+            #         int(y_last - arrow_length * (dy * np.cos(arrow_angle) - dx * np.sin(arrow_angle)))
+            #     )
+            #     arrow_right = (
+            #         int(x_last - arrow_length * (dx * np.cos(arrow_angle) - dy * np.sin(arrow_angle))),
+            #         int(y_last - arrow_length * (dy * np.cos(arrow_angle) + dx * np.sin(arrow_angle)))
+            #     )
 
-                # Draw arrow head as a filled triangle
-                pts = np.array([arrow_tip, arrow_left, arrow_right], np.int32)
-                cv2.fillPoly(img, [pts], traj_color)
-                cv2.polylines(img, [pts], True, traj_color, line_thickness)
+            #     # Draw arrow head as a filled triangle
+            #     pts = np.array([arrow_tip, arrow_left, arrow_right], np.int32)
+            #     cv2.fillPoly(img, [pts], traj_color)
+            #     cv2.polylines(img, [pts], True, traj_color, line_thickness)
 
 
 def apriltag2cam(padding=0):
