@@ -1420,18 +1420,18 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     guidance_scale=None,
                     consistency_guidance=consistency_guidance_action,
                     )
-                np_prompt_img = visualize_trajectories_on_camera(
-                    batch['observation.images.camera_front'],
-                    actions.cpu().numpy()[:, ::10],
+                front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
+                    batch,
+                    actions.cpu().numpy(),
+                    robot,
                     actions_are_normalized=True,
                     postprocessor=postprocessor,
                     name=f"predicted_actions_{self.count}",
-                    wrist_img=batch['observation.images.camera_wrist'],
                     save_imgs=False,
                     )
                 task = batch['task'][0].split(',')[0].split(':')[1].strip()
                 text_prompt = "".join(copy.copy(self.text_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
-                pil_img = Image.fromarray(cv2.cvtColor(np_prompt_img, cv2.COLOR_BGR2RGB))
+                pil_img = Image.fromarray(cv2.cvtColor(front_prompt_img, cv2.COLOR_BGR2RGB))
                 chosen_color, generated_text = self.vlm_client.select_trajectories(
                     pil_img,
                     text_prompt,
@@ -1574,12 +1574,12 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
 
 def visualize_trajectories_on_camera(
-    image_tensor,
+    batch,
     action,
+    robot,
     actions_are_normalized=False,
     postprocessor=None,
     name="test",
-    wrist_img=None,
     save_imgs=False,
     ):
     padding = 0
@@ -1589,37 +1589,44 @@ def visualize_trajectories_on_camera(
         denom = q99 - q01
         # chunk = 2.0 * (chunk - q01) / denom - 1.0
         action = (action + 1.0) / 2.0 * denom + q01
+    outputs = {}
+    for img_key in ['observation.images.camera_front', 'observation.images.camera_wrist']:
+        image_tensor = batch[img_key]
+        # save the image tensor as an image file
+        assert image_tensor.shape[0] == 1 # batch size 1
+        image_np = (image_tensor[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
+        image_np = (image_np * 0.80).astype(np.uint8)  # decrease brightness to make trajectories more visible
+        image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+        image_np = np.pad(image_np, ((padding, padding), (padding, padding), (0, 0)), mode='constant', constant_values=0)
+        if "front" in img_key:
+            extrinsic, intrinsic = apriltag2cam(padding=padding)
+            line_thickness = 1
+            draw_arrow_head = False
+            downsample = 10
+        else: # wrist cam
+            extrinsic, intrinsic = get_wrist_cam_mats(robot, padding=padding)
+            line_thickness = 2
+            draw_arrow_head = True
+            downsample = 5
+        for i in range(action.shape[0]):
+            traj_color = TRAJ_COLORS[i]
+            points_2D, depths = project_3d_to_2d(action[i, ::downsample, :3], extrinsic, intrinsic)
+            draw_lines(points_2D, image_np, depths > 0, traj_color, i==0, line_thickness=line_thickness, draw_arrow_head=draw_arrow_head)
+        # Add legend with color names
+        legend_y = 30
+        for i, color in enumerate(TRAJ_COLORS):
+            cv2.circle(image_np, (30, legend_y), 6, color, -1)
+            cv2.putText(image_np, TRAJ_COLOR_NAMES[i], (45, legend_y + 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            legend_y += 25
+        outputs[img_key] = image_np
+        if save_imgs:
+            cv2.imwrite(f"{name}_{img_key.split('.')[-1]}.png", image_np)
 
-    # save the image tensor as an image file
-    assert image_tensor.shape[0] == 1 # batch size 1
-    image_np = (image_tensor[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
-    image_np = (image_np * 0.80).astype(np.uint8)  # decrease brightness to make trajectories more visible
-    image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-    image_np = np.pad(image_np, ((padding, padding), (padding, padding), (0, 0)), mode='constant', constant_values=0)
-    extrinsic, intrinsic = apriltag2cam(padding=padding)
-    for i in range(action.shape[0]):
-        traj_color = TRAJ_COLORS[i]
-        points_2D, depths = project_3d_to_2d(action[i, :, :3], extrinsic, intrinsic)
-        draw_lines(points_2D, image_np, depths > 0, traj_color, i==0)
-    # Add legend with color names
-    legend_y = 30
-    for i, color in enumerate(TRAJ_COLORS):
-        cv2.circle(image_np, (30, legend_y), 6, color, -1)
-        cv2.putText(image_np, TRAJ_COLOR_NAMES[i], (45, legend_y + 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-        legend_y += 25
-    if save_imgs:
-        cv2.imwrite(f"{name}.png", image_np)
-
-    if wrist_img is not None and save_imgs:
-        assert wrist_img.shape[0] == 1  # batch size 1
-        wrist_np = (wrist_img[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
-        cv2.imwrite(f"{name}_wrist.png", cv2.cvtColor(wrist_np, cv2.COLOR_RGB2BGR))
-    return image_np
+    return outputs['observation.images.camera_front'], outputs['observation.images.camera_wrist']
 
 
-def draw_lines(points_2d, img, valid_mask, traj_color, first_traj):
-    line_thickness = 1
+def draw_lines(points_2d, img, valid_mask, traj_color, first_traj, line_thickness=1, draw_arrow_head=False):
     last_valid_idx = None
     second_last_valid_idx = None
 
@@ -1634,13 +1641,11 @@ def draw_lines(points_2d, img, valid_mask, traj_color, first_traj):
             # if j == 0 and i == 0:  # Only draw current position once
             if j == 0 and first_traj:
                 # Current position - larger circle with white outline
-                cv2.circle(img, (x, y), 4, (0, 255, 0), -1)
-                cv2.circle(img, (x, y), 5, (255, 255, 255), 2)
-                pass
+                cv2.circle(img, (x, y), 4 * line_thickness, (0, 255, 0), -1)
+                cv2.circle(img, (x, y), 5 * line_thickness, (255, 255, 255), 2)
             elif j > 0:
                 # Future positions
-                pass
-                cv2.circle(img, (x, y), 2, traj_color, -1)
+                cv2.circle(img, (x, y), 2 * line_thickness, traj_color, -1)
 
             # Track valid points for arrow head
             second_last_valid_idx = last_valid_idx
@@ -1654,7 +1659,7 @@ def draw_lines(points_2d, img, valid_mask, traj_color, first_traj):
                 cv2.line(img, (x_prev, y_prev), (x, y), traj_color, line_thickness)
 
     # Draw arrow head at the end of trajectory
-    if last_valid_idx is not None and second_last_valid_idx is not None:
+    if last_valid_idx is not None and second_last_valid_idx is not None and draw_arrow_head:
         x_last, y_last = int(points_2d[last_valid_idx, 0]), int(points_2d[last_valid_idx, 1])
         x_prev, y_prev = int(points_2d[second_last_valid_idx, 0]), int(points_2d[second_last_valid_idx, 1])
 
@@ -1664,30 +1669,61 @@ def draw_lines(points_2d, img, valid_mask, traj_color, first_traj):
             dy = y_last - y_prev
             length = np.sqrt(dx**2 + dy**2)
 
-            # if length > 0:
-            #     # Normalize direction
-            #     dx /= length
-            #     dy /= length
+            if length > 0:
+                # Normalize direction
+                dx /= length
+                dy /= length
 
-            #     # Arrow head parameters
-            #     arrow_length = 5
-            #     arrow_angle = np.pi / 6  # 30 degrees
+                # Arrow head parameters
+                arrow_length = 10
+                arrow_angle = np.pi / 6  # 30 degrees
 
-            #     # Calculate arrow head points
-            #     arrow_tip = (x_last, y_last)
-            #     arrow_left = (
-            #         int(x_last - arrow_length * (dx * np.cos(arrow_angle) + dy * np.sin(arrow_angle))),
-            #         int(y_last - arrow_length * (dy * np.cos(arrow_angle) - dx * np.sin(arrow_angle)))
-            #     )
-            #     arrow_right = (
-            #         int(x_last - arrow_length * (dx * np.cos(arrow_angle) - dy * np.sin(arrow_angle))),
-            #         int(y_last - arrow_length * (dy * np.cos(arrow_angle) + dx * np.sin(arrow_angle)))
-            #     )
+                # Calculate arrow head points
+                arrow_tip = (x_last, y_last)
+                arrow_left = (
+                    int(x_last - arrow_length * (dx * np.cos(arrow_angle) + dy * np.sin(arrow_angle))),
+                    int(y_last - arrow_length * (dy * np.cos(arrow_angle) - dx * np.sin(arrow_angle)))
+                )
+                arrow_right = (
+                    int(x_last - arrow_length * (dx * np.cos(arrow_angle) - dy * np.sin(arrow_angle))),
+                    int(y_last - arrow_length * (dy * np.cos(arrow_angle) + dx * np.sin(arrow_angle)))
+                )
 
-            #     # Draw arrow head as a filled triangle
-            #     pts = np.array([arrow_tip, arrow_left, arrow_right], np.int32)
-            #     cv2.fillPoly(img, [pts], traj_color)
-            #     cv2.polylines(img, [pts], True, traj_color, line_thickness)
+                # Draw arrow head as a filled triangle
+                pts = np.array([arrow_tip, arrow_left, arrow_right], np.int32)
+                cv2.fillPoly(img, [pts], traj_color)
+                cv2.polylines(img, [pts], True, traj_color, line_thickness)
+
+
+def get_wrist_cam_mats(robot, padding=0):
+    if robot.debug:
+        eef_pose = np.array(
+            [[ 0.99938,  0.03493, -0.00051,  0.45202],
+             [ 0.03491, -0.99916, -0.02116,  0.03674],
+             [-0.00125,  0.02113, -0.99978,  0.25416],
+             [ 0.     ,  0.     ,  0.     ,  1.     ]],
+             )
+    else:
+        eef_pose = robot.operator.robot_interface.last_eef_pose
+    eef_pose[:3, 3] += np.array([-0.055, -0.005, 0.1])
+    Rz_neg90 = np.array([
+        [ 0.0,  1.0, 0.0],
+        [-1.0,  0.0, 0.0],
+        [ 0.0,  0.0, 1.0],
+    ], dtype=float)
+    tilt = np.deg2rad(-18.0)
+    Rx = np.array([
+        [1, 0, 0],
+        [0, np.cos(tilt), -np.sin(tilt)],
+        [0, np.sin(tilt),  np.cos(tilt)],
+    ])
+    extrinsic = eef_pose
+    extrinsic[:3, :3] = extrinsic[:3, :3] @ Rz_neg90 @ Rx
+
+    extrinsic = np.linalg.inv(eef_pose)
+    f = 456.432495117187 # for 360 x 360 img
+    intrinsic = np.array([[f, 0.0, 320.0 + padding],[0.0, f, 180.0 + padding],[0.0, 0.0, 1.0]])
+    return extrinsic, intrinsic
 
 
 def apriltag2cam(padding=0):
