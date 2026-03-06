@@ -49,6 +49,7 @@ from lerobot.utils.constants import (
 )
 import sys
 import copy
+from functools import partial
 
 from safetensors.torch import load_file
 from .vlm_client import VLMClient
@@ -77,6 +78,18 @@ TRAJ_COLOR_NAMES =(
     "Magenta",
 )
 
+VLM_IO_OUTPUT_DIR = "vlm_io"
+
+# clear the dir if it exists
+vlm_io_path = Path(VLM_IO_OUTPUT_DIR)
+if vlm_io_path.exists() and vlm_io_path.is_dir():
+    for file in vlm_io_path.iterdir():
+        if file.is_file():
+            file.unlink()
+
+INTERVENTIONS = True
+USE_WRIST = True
+MANUAL_GUIDANCE = True
 import random
 
 
@@ -1156,7 +1169,11 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
         self.reset()
         self.vlm_client = VLMClient(server_url="http://127.0.0.1:60721")
-        with open("/home/jeremiah/lerobot/src/lerobot/policies/pi05/vlm_prompt_template.txt", "r") as f:
+        if USE_WRIST:
+            prompt_template_path = "src/lerobot/policies/pi05/vlm_prompt_template_wrist.txt"
+        else:
+            prompt_template_path = "src/lerobot/policies/pi05/vlm_prompt_template.txt"
+        with open(prompt_template_path, "r") as f:
             self.text_prompt_template = f.readlines()
 
     @classmethod
@@ -1406,12 +1423,14 @@ class PI05PolicyTaco(PreTrainedPolicy):
         # guidance_action = None
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
+            if self.count == 4 and not MANUAL_GUIDANCE:
+                sys.exit(0)
             intervention_period = 1
             consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
             guidance_scale = 40.0
             num_trajs = 5
             print(f"\nGenerating action chunk number {self.count}")
-            if self.count % intervention_period == 0:  # intervene
+            if self.count % intervention_period == 0 and INTERVENTIONS and not MANUAL_GUIDANCE:  # intervene
                 print(f"Intervention step...")
                 actions = self.predict_action_chunk(
                     batch,
@@ -1431,7 +1450,10 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     )
                 task = batch['task'][0].split(',')[0].split(':')[1].strip()
                 text_prompt = "".join(copy.copy(self.text_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
-                pil_img = Image.fromarray(cv2.cvtColor(front_prompt_img, cv2.COLOR_BGR2RGB))
+                if USE_WRIST:
+                    pil_img = Image.fromarray(cv2.cvtColor(wrist_prompt_img, cv2.COLOR_BGR2RGB))
+                else:
+                    pil_img = Image.fromarray(cv2.cvtColor(front_prompt_img, cv2.COLOR_BGR2RGB))
                 chosen_color, generated_text = self.vlm_client.select_trajectories(
                     pil_img,
                     text_prompt,
@@ -1451,6 +1473,19 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     guidance_scale=guidance_scale,
                     consistency_guidance=None,
                     )
+            if MANUAL_GUIDANCE:
+                print(f"Manual guidance step...")
+                # Example of manual guidance: guide to move right
+                guidance_action = None
+                x = partial(get_guidance_action_from_text, postprocessor=postprocessor, robot=robot)
+                breakpoint()
+                actions = self.predict_action_chunk(
+                    batch,
+                    num_samples=1,
+                    guidance_actions=guidance_action,
+                    guidance_scale=guidance_scale,
+                    consistency_guidance=None,
+                    )
             else:  # no intervention
                 print(f"No intervention ...")
                 actions = self.predict_action_chunk(
@@ -1460,6 +1495,24 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     guidance_scale=guidance_scale,
                     consistency_guidance=consistency_guidance_action,
                     )
+            # # just to vis actions distribution
+            # actions = self.predict_action_chunk(
+            #     batch,
+            #     num_samples=num_trajs,
+            #     guidance_actions=None,
+            #     guidance_scale=None,
+            #     consistency_guidance=consistency_guidance_action,
+            #     )
+            # front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
+            #     batch,
+            #     actions.cpu().numpy(),
+            #     robot,
+            #     actions_are_normalized=True,
+            #     postprocessor=postprocessor,
+            #     name=f"predicted_actions_{self.count}",
+            #     save_imgs=True,
+            #     )
+            # actions = actions[0:1]
             self.count += 1
             self._action_queue.extend(actions.transpose(0, 1))
 
