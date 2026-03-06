@@ -45,4 +45,4 @@ $(which lerobot-train) \
     --steps=3000 \
     --policy.device=cuda \
     --batch_size=24 \
-    --log_freq=5
+    --log_freq=1
