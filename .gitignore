@@ -11,34 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-vlm_io/
-input_args_0.pkl
-input_args_1.pkl
-input_args_2.pkl
-input_args_3.pkl
-input_args_4.pkl
-test_0.png
-test_0_5_deg_z.png
-test_0_new_fix.png
-test_0_new_fix_w_origin.png
-test_1.png
-test_1_5_deg_z.png
-test_1_new_fix.png
-test_1_new_fix_w_origin.png
-test_2.png
-test_2_5_deg_z.png
-test_2_new_fix.png
-test_2_new_fix_w_origin.png
-test_3.png
-test_3_5_deg_z.png
-test_3_new_fix.png
-test_3_new_fix_w_origin.png
-test_4.png
-test_4_5_deg_z.png
-test_4_new_fix.png
-test_4_new_fix_w_origin.png
-test_after.png
-test_after_old.png
 *.out
 ### Environments & Dependencies ###
 .env
