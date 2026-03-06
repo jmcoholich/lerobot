@@ -5,9 +5,9 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
 
 # Configuration
-REPO_ID = "lerobot/eve_blocks_cartesian_triple"
-DATASET_NAME = "eve_blocks_cartesian_triple"
-ORIG_DATASET_PATH = Path("/home/jeremiah/openteach/extracted_data/eve_blocks/h5_files")
+REPO_ID = "lerobot/both_blocks_in_bin"
+DATASET_NAME = "both_blocks_in_bin"
+ORIG_DATASET_PATH = Path("/home/jeremiah/openteach/extracted_data/polina_demos/h5_files")
 FPS = 20
 ROOT_DIR = Path(f"/data3/lerobot_data/{DATASET_NAME}")  # Where the dataset will be created locally
 
@@ -52,7 +52,7 @@ def main():
     )
 
     # 2. Iterate over all HDF5 files in the directory
-    h5_files = sorted(list(ORIG_DATASET_PATH.glob("*.h5")))
+    h5_files = sorted(list(ORIG_DATASET_PATH.glob("*both*.h5")))
     print(f"Found {len(h5_files)} episodes in {ORIG_DATASET_PATH}")
 
     for h5_path in tqdm(h5_files):
@@ -108,8 +108,8 @@ def main():
 
 
 def get_task_instructions(fname):
-    color = fname.split('_')[2]
-    return f"pick up the {color} block"
+    color = "blue" if "blue" in fname else "pink"
+    return f"place both blocks in the bin"
 
 
 if __name__ == "__main__":
