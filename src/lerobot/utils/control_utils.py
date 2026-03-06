@@ -115,7 +115,7 @@ def predict_action(
     return action
 
 
-def init_keyboard_listener():
+def init_keyboard_listener(enabled=True):
     """
     Initializes a non-blocking keyboard listener for real-time user interaction.
 
@@ -163,7 +163,8 @@ def init_keyboard_listener():
             print(f"Error handling key press: {e}")
 
     listener = keyboard.Listener(on_press=on_press)
-    listener.start()
+    if enabled:
+        listener.start()
 
     return listener, events
 
