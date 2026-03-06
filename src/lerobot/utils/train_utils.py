@@ -107,7 +107,7 @@ def save_checkpoint(
         preprocessor.save_pretrained(pretrained_dir)
     if postprocessor is not None:
         postprocessor.save_pretrained(pretrained_dir)
-    save_training_state(checkpoint_dir, step, optimizer, scheduler)
+    # save_training_state(checkpoint_dir, step, optimizer, scheduler)  # Disabled for now since these take up 50% of checkpoint size
 
 
 def save_training_state(
