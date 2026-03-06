@@ -420,7 +420,7 @@ def _apply_torch_compile(policy, cfg: RTCDemoConfig):
         original_method = policy.predict_action_chunk
         compiled_method = torch.compile(original_method, **compile_kwargs)
         policy.predict_action_chunk = compiled_method
-        logger.info("✓ Successfully compiled predict_action_chunk")
+        logger.info("[OK] Successfully compiled predict_action_chunk")
 
     except Exception as e:
         logger.error(f"Failed to apply torch.compile: {e}")

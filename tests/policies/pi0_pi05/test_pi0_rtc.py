@@ -66,7 +66,7 @@ def test_pi0_rtc_initialization():
     assert policy.rtc_processor is not None
     assert policy.rtc_processor.rtc_config.enabled is True
 
-    print("✓ PI0 RTC initialization: Test passed")
+    print("[OK] PI0 RTC initialization: Test passed")
 
 
 @require_cuda
@@ -85,7 +85,7 @@ def test_pi0_rtc_initialization_without_rtc_config():
     assert policy.model.rtc_processor is None
     assert policy._rtc_enabled() is False
 
-    print("✓ PI0 RTC initialization without RTC config: Test passed")
+    print("[OK] PI0 RTC initialization without RTC config: Test passed")
 
 
 def test_pi0_rtc_inference_with_prev_chunk():
@@ -161,7 +161,7 @@ def test_pi0_rtc_inference_with_prev_chunk():
     # With previous chunk, actions should be different (RTC guidance applied)
     assert not torch.allclose(actions_with_rtc, actions_without_rtc, rtol=1e-3)
 
-    print("✓ PI0 RTC inference with prev_chunk: Test passed")
+    print("[OK] PI0 RTC inference with prev_chunk: Test passed")
 
 
 @require_cuda
@@ -229,7 +229,7 @@ def test_pi0_rtc_inference_without_prev_chunk():
     # Without previous chunk, RTC should have no effect
     assert torch.allclose(actions_with_rtc_no_prev, actions_without_rtc, rtol=1e-5)
 
-    print("✓ PI0 RTC inference without prev_chunk: Test passed")
+    print("[OK] PI0 RTC inference without prev_chunk: Test passed")
 
 
 @require_cuda
@@ -373,6 +373,6 @@ def test_pi0_rtc_validation_rules():
 
         # Verify shape
         assert actions.shape == (1, config.chunk_size, 7)
-        print(f"  ✓ Schedule {schedule}: Test passed")
+        print(f"  [OK] Schedule {schedule}: Test passed")
 
-    print("✓ PI0 RTC different schedules: All schedules tested")
+    print("[OK] PI0 RTC different schedules: All schedules tested")

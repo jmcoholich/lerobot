@@ -431,7 +431,7 @@ def handle_convert_image_to_video(cfg: EditDatasetConfig) -> None:
     if cfg.push_to_hub:
         logging.info(f"Pushing to hub as {output_repo_id}...")
         new_dataset.push_to_hub()
-        logging.info("✓ Successfully pushed to hub!")
+        logging.info("[OK] Successfully pushed to hub!")
     else:
         logging.info("Dataset saved locally (not pushed to hub)")
 

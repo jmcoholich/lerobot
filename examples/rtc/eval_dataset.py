@@ -327,7 +327,7 @@ class RTCEvaluator:
         if self.cfg.use_torch_compile:
             policy = self._apply_torch_compile(policy, name)
 
-        logging.info(f"✓ {name} initialized successfully")
+        logging.info(f"[OK] {name} initialized successfully")
         return policy
 
     def _apply_torch_compile(self, policy, policy_name: str):
@@ -375,7 +375,7 @@ class RTCEvaluator:
             original_method = policy.predict_action_chunk
             compiled_method = torch.compile(original_method, **compile_kwargs)
             policy.predict_action_chunk = compiled_method
-            logging.info(f"  ✓ [{policy_name}] Successfully compiled predict_action_chunk")
+            logging.info(f"  [OK] [{policy_name}] Successfully compiled predict_action_chunk")
 
         except Exception as e:
             logging.error(f"  [{policy_name}] Failed to apply torch.compile: {e}")
@@ -413,7 +413,7 @@ class RTCEvaluator:
             if torch.backends.mps.is_available():
                 torch.mps.empty_cache()
 
-            logging.info(f"  ✓ {policy_name} destroyed and memory freed")
+            logging.info(f"  [OK] {policy_name} destroyed and memory freed")
 
         except Exception as e:
             logging.warning(f"  Warning: Error during {policy_name} cleanup: {e}")

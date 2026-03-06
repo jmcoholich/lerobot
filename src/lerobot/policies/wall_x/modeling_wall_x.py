@@ -338,7 +338,7 @@ class Qwen2_5_VLMoEForAction(Qwen2_5_VLForConditionalGeneration):
             from safetensors.torch import load_file
 
             sd = load_file(resolved_file)
-            print("✓ Loaded state dict from model.safetensors")
+            print("[OK] Loaded state dict from model.safetensors")
         except Exception as e:
             print(f"Could not load state dict from remote files: {e}")
             print("Returning model without loading pretrained weights")
