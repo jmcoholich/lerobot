@@ -1637,8 +1637,8 @@ def visualize_trajectories_on_camera(
     ):
     padding = 0
     if actions_are_normalized:
-        q01 = postprocessor.steps[0].stats['action']['q01']
-        q99 = postprocessor.steps[0].stats['action']['q99']
+        q01 = postprocessor.steps[0].stats['action']['min']
+        q99 = postprocessor.steps[0].stats['action']['max']
         denom = q99 - q01
         # chunk = 2.0 * (chunk - q01) / denom - 1.0
         action = (action + 1.0) / 2.0 * denom + q01

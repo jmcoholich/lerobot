@@ -54,8 +54,8 @@ def get_guidance_action_from_text(label, postprocessor, robot):
     action_primitive = torch.tensor(LABEL2ACTION[label], dtype=torch.float32)
     # chunk = rotate_to_robot_frame(chunk, robot)
     chunk = create_cartesian_chunk(action_primitive, robot)
-    q01 = postprocessor.steps[0].stats['action']['q01']
-    q99 = postprocessor.steps[0].stats['action']['q99']
+    q01 = postprocessor.steps[0].stats['action']['min']
+    q99 = postprocessor.steps[0].stats['action']['max']
     denom = q99 - q01
     chunk = 2.0 * (chunk - q01) / denom - 1.0
     return chunk
@@ -65,8 +65,8 @@ def get_consistency_guidance(postprocessor, robot):
     action_primitive = torch.tensor(IN_PLACE, dtype=torch.float32)
     # chunk = rotate_to_robot_frame(chunk, robot)
     chunk = create_cartesian_chunk(action_primitive, robot)
-    q01 = postprocessor.steps[0].stats['action']['q01']
-    q99 = postprocessor.steps[0].stats['action']['q99']
+    q01 = postprocessor.steps[0].stats['action']['min']
+    q99 = postprocessor.steps[0].stats['action']['max']
     denom = q99 - q01
     chunk = 2.0 * (chunk - q01) / denom - 1.0
     chunk = chunk[..., :-1]  # chop off the gripper dimension
