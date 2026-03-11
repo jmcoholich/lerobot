@@ -10,13 +10,6 @@ The task is to:  <TASK_DESCRIPTION/>
 </SITUATION>
 
 <TRAJECTORY_CHOICES>
-    "red": Choose this to command the robot to follow the red path.
-    "orange": Choose this to command the robot to follow the orange path.
-    "blue": Choose this to command the robot to follow the blue path.
-    "cyan": Choose this to command the robot to follow the cyan path.
-    "magenta": Choose this to command the robot to follow the magenta path.
-    "none": Choose this to reject all proposed trajectories. This is the safest option if all paths lead to failure (e.g., collision, incorrect placement).
-</TRAJECTORY_CHOICES>
 
 Analyze the scene and the proposed trajectories to determine which, if any, is the best path for the robot to follow to achieve its current task.
 

@@ -1415,6 +1415,22 @@ class PI05PolicyTaco(PreTrainedPolicy):
         actions = pad_vector(batch[ACTION], self.config.max_action_dim)
         return actions
 
+    def gen_text_prompt(self, task, num_traj):
+        trajectory_choices = ["<TRAJECTORY_CHOICES>"]
+        for color_name in TRAJ_COLOR_NAMES[:num_traj]:
+            color = color_name.lower()
+            trajectory_choices.append(
+                f'    "{color}": Choose this to command the robot to follow the {color} path.'
+            )
+        # trajectory_choices.append(
+        #     '    "none": Choose this to reject all proposed trajectories. This is the safest option if all paths lead to failure (e.g., collision, incorrect placement).'
+        # )
+        trajectory_choices.append("</TRAJECTORY_CHOICES>")
+
+        prompt = "".join(copy.copy(self.text_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
+        prompt = prompt.replace("<TRAJECTORY_CHOICES>", "\n".join(trajectory_choices))
+        return prompt
+
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor], postprocessor=None, robot=None) -> Tensor:
         """Select a single action given environment observations."""
@@ -1464,7 +1480,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     save_imgs=False,
                     )
                 task = batch['task'][0].split(',')[0].split(':')[1].strip()
-                text_prompt = "".join(copy.copy(self.text_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
+                text_prompt = self.gen_text_prompt(task, num_trajs)
                 if USE_WRIST:
                     pil_img = Image.fromarray(cv2.cvtColor(wrist_prompt_img, cv2.COLOR_BGR2RGB))
                 else:
