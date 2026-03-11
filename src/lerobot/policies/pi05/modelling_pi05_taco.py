@@ -99,7 +99,7 @@ if vlm_io_path.exists() and vlm_io_path.is_dir():
 
 INTERVENTIONS = False
 USE_WRIST = True
-MANUAL_GUIDANCE = True
+MANUAL_GUIDANCE = False
 VIS_SPREADS = False # no guidance, just generate 5 trajectories and visualize them
 if VIS_SPREADS:
     assert not MANUAL_GUIDANCE
@@ -1457,7 +1457,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             if self.count == 4 and not MANUAL_GUIDANCE:
                 sys.exit(0)
             intervention_period = 1
-            consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
+            # consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
             guidance_scale = 40.0
             num_trajs = 5
             print(f"\nGenerating action chunk number {self.count}")
@@ -1468,7 +1468,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     num_samples=num_trajs,
                     guidance_actions=None,
                     guidance_scale=None,
-                    consistency_guidance=consistency_guidance_action,
+                    consistency_guidance=None,
                     )
                 front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
                     batch,
@@ -1523,7 +1523,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     num_samples=10,
                     guidance_actions=None,
                     guidance_scale=None,
-                    consistency_guidance=consistency_guidance_action,
+                    consistency_guidance=None,
                     )
                 _, _ = visualize_trajectories_on_camera(
                     batch,
@@ -1542,7 +1542,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     num_samples=1,
                     guidance_actions=None,
                     guidance_scale=guidance_scale,
-                    consistency_guidance=consistency_guidance_action,
+                    consistency_guidance=None,
                     )
             # # just to vis actions distribution
             # actions = self.predict_action_chunk(

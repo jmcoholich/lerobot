@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from deoxys.utils.transform_utils import axisangle2quat, quat_multiply
 CHUNK_SIZE = 100
-DES_TRANSLATION = 0.05
+DES_TRANSLATION = 0.1
 DES_ROTATION = np.deg2rad(22.5)
 GRIPPER_ACTION = -1.0  # Hardcoded as open
 
