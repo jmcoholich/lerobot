@@ -1494,14 +1494,17 @@ class PI05PolicyTaco(PreTrainedPolicy):
             print(f"\nGenerating action chunk number {self.count}")
             if self.count % intervention_period == 0 and INTERVENTIONS and not (MANUAL_GUIDANCE or VIS_SPREADS):  # intervene
                 print(f"Intervention step...")
-
+                print(f"Intervention mode: {INTERVENTIONS}")
                 if INTERVENTIONS == "PIVOT":
+                    print("Running pivot guidance...")
                     guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False)
                 elif INTERVENTIONS == "primitive":
                     assert not USE_WRIST
+                    print("Running primitive guidance...")
                     guidance_action = self.primitive_guidance(batch, postprocessor, robot, save_imgs=False)
                 elif INTERVENTIONS == "ensemble":
                     assert not USE_WRIST
+                    print("Running ensemble guidance (pivot + primitive + fusion)...")
                     pivot_guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False)
                     primitive_guidance_action = self.primitive_guidance(batch, postprocessor, robot, save_imgs=False)
                     guidance_action = self.action_ensemble(pivot_guidance_action, primitive_guidance_action, batch, postprocessor, robot, save_imgs=True)
@@ -1528,6 +1531,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     consistency_guidance=None,
                     )
             elif VIS_SPREADS:
+                print("Visualization spread step...")
                 actions = self.predict_action_chunk(
                     batch,
                     num_samples=10,
