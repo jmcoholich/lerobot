@@ -37,6 +37,7 @@ from transformers.models.gemma.modeling_gemma import GemmaForCausalLM
 from transformers.models.paligemma.modeling_paligemma import PaliGemmaForConditionalGeneration
 from transformers.modeling_utils import no_init_weights
 from transformers.utils import cached_file
+from sklearn.metrics.pairwise import cosine_similarity
 
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies.pi05.configuration_pi05 import PI05Config
@@ -1465,11 +1466,13 @@ class PI05PolicyTaco(PreTrainedPolicy):
                 print(f"Intervention step...")
                 actions = self.predict_action_chunk(
                     batch,
-                    num_samples=num_trajs,
+                    num_samples=num_trajs * 3,
                     guidance_actions=None,
                     guidance_scale=None,
                     consistency_guidance=None,
                     )
+                idcs = select_representative_trajectories(actions, num_trajectories=num_trajs)
+                actions = actions[idcs]
                 front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
                     batch,
                     actions.cpu().numpy(),
@@ -1920,6 +1923,90 @@ def project_3d_to_2d(points_3d, extrinsic, intrinsic):
     points_2d = points_2d_homo[:, :2] / points_2d_homo[:, 2:3]
 
     return points_2d, z_cam
+
+
+def select_representative_trajectories(action_trajectories_orig: np.ndarray, num_trajectories: int = 3) -> np.ndarray:
+    """
+    Selects representative trajectories from a batch with maximum spread.
+
+    This function uses an efficient O(k*n) Farthest Point Sampling (FPS) implementation.
+
+    Strategy:
+    1. Start with the "average" (medoid) trajectory — the one most similar overall.
+    2. Iteratively select the trajectory most dissimilar to the selected set,
+       using a greedy "farthest-point" criterion based on cosine distance.
+
+    Args:
+        action_trajectories (np.ndarray): Array of shape (num_samples, horizon, 3) containing 3D positions.
+        num_trajectories (int): Number of representative trajectories to select.
+
+    Returns:
+        np.ndarray: Indices of selected trajectories.
+    """
+    action_trajectories = action_trajectories_orig[:, :, :3].detach().cpu().numpy()
+    num_samples = action_trajectories.shape[0]
+
+    # Handle edge cases
+    if num_trajectories <= 0:
+        return np.array([], dtype=int)
+    if num_samples <= num_trajectories:
+        return np.arange(num_samples)
+
+    # Flatten each trajectory: (num_samples, horizon * 3)
+    flattened = action_trajectories.reshape(num_samples, -1)
+
+    # Normalize to avoid zero-vector issues in cosine similarity
+    norms = np.linalg.norm(flattened, axis=1, keepdims=True)
+    flattened = np.where(norms == 0, 0, flattened / np.maximum(norms, 1e-8))
+
+    # Compute cosine similarity and convert to distance
+    # sim_matrix[i, j] = similarity between trajectory i and j
+    sim_matrix = cosine_similarity(flattened)
+    dist_matrix = 1 - sim_matrix  # cosine distance (0 = identical, 2 = opposite)
+
+    # Step 1: Select the medoid (most central trajectory)
+    # This is the point with the minimum *total* distance to all other points.
+    total_dissimilarity = dist_matrix.sum(axis=1)
+    medoid_idx = np.argmin(total_dissimilarity)
+
+    selected_indices = [medoid_idx]
+
+    # --- Optimized Step 2 ---
+    # We maintain an array of the minimum distance from each point
+    # to the *currently selected set*.
+    # Initialize it with distances to the first selected point (the medoid).
+    min_dists_to_selected = dist_matrix[medoid_idx, :].copy()
+
+    # Mark the medoid as "selected" by setting its min_dist to a value
+    # that np.argmax will never pick (since distances are >= 0).
+    min_dists_to_selected[medoid_idx] = -1.0
+
+    for _ in range(num_trajectories - 1):
+        # 1. Find the point with the maximum "minimum distance"
+        # This is the point farthest from its closest selected neighbor.
+        farthest_idx = np.argmax(min_dists_to_selected)
+
+        # This check handles the case where we've selected all valid points
+        if min_dists_to_selected[farthest_idx] == -1.0:
+            break
+
+        # 2. Add this point to our set
+        selected_indices.append(farthest_idx)
+
+        # 3. Mark this new point as selected
+        min_dists_to_selected[farthest_idx] = -1.0
+
+        # 4. Update the min_dists array.
+        # For all remaining points, their new minimum distance is
+        # min(their_current_min_dist, their_dist_to_the_new_point).
+        dists_to_new_point = dist_matrix[farthest_idx, :]
+        min_dists_to_selected = np.minimum(min_dists_to_selected, dists_to_new_point)
+
+    selected_indices = np.array(selected_indices, dtype=int)
+    # cast back to torch gpu tensor
+    selected_indices = torch.from_numpy(selected_indices).to(action_trajectories_orig.device)
+    return selected_indices
+
 
 if __name__ == "__main__":
     import pickle
