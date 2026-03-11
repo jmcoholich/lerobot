@@ -5,8 +5,8 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
 
 # Configuration
-REPO_ID = "lerobot/eve_blocks_cartesian_triple_fix_quat"
-DATASET_NAME = "eve_blocks_cartesian_triple_fix_quat"
+REPO_ID = "lerobot/eve_blocks_6x"
+DATASET_NAME = "eve_blocks_6x"
 ORIG_DATASET_PATH = Path("/home/jeremiah/openteach/extracted_data/eve_blocks/h5_files")
 FPS = 20
 ROOT_DIR = Path(f"/data3/lerobot_data/{DATASET_NAME}")  # Where the dataset will be created locally

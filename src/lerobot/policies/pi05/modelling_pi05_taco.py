@@ -54,28 +54,38 @@ from functools import partial
 from safetensors.torch import load_file
 from .vlm_client import VLMClient
 from PIL import Image, ImageDraw, ImageFont
-# ssh -N -f -L localhost:60721:localhost:60721 -J jcoholich3@sky1.cc.gatech.edu jcoholich3@optimistprime.cc.gatech.edu
+# ssh -N -f -L localhost:38477:localhost:38477 -J jcoholich3@sky1.cc.gatech.edu jcoholich3@optimistprime.cc.gatech.edu
 VLLM_SERVERS=(
-    "http://optimistprime.cc.gatech.edu:60721",
-    "http://clippy.cc.gatech.edu:44273",
-    "http://shakey.cc.gatech.edu:34825",
-    "http://cheetah.cc.gatech.edu:33683",
-    "http://ig-88.cc.gatech.edu:44219",
+    "http://optimistprime.cc.gatech.edu:38477",
+    "http://clippy.cc.gatech.edu:56749",
+    "http://shakey.cc.gatech.edu:53727",
+    "http://cheetah.cc.gatech.edu:33793",
+    "http://ig-88.cc.gatech.edu:56151",
 )
 
 TRAJ_COLORS = (
-        (0, 0, 255),    # Red
-        (0, 165, 255),  # Orange
-        (255, 0, 0),    # Blue
-        (255, 255, 0),  # Cyan
-        (255, 0, 255),  # Magenta
+    (0, 0, 255),    # Red
+    (0, 165, 255),  # Orange
+    (255, 0, 0),    # Blue
+    (255, 255, 0),  # Cyan
+    (255, 0, 255),  # Magenta
+    (0, 255, 0),    # Green
+    (255, 255, 255),# White
+    (0, 255, 255),  # Yellow
+    (128, 0, 128),  # Purple
+    (19, 69, 139),  # Brown
 )
-TRAJ_COLOR_NAMES =(
+TRAJ_COLOR_NAMES = (
     "Red",
     "Orange",
     "Blue",
     "Cyan",
     "Magenta",
+    "Green",
+    "White",
+    "Yellow",
+    "Purple",
+    "Brown",
 )
 
 VLM_IO_OUTPUT_DIR = "vlm_io"
@@ -87,9 +97,13 @@ if vlm_io_path.exists() and vlm_io_path.is_dir():
         if file.is_file():
             file.unlink()
 
-INTERVENTIONS = True
+INTERVENTIONS = False
 USE_WRIST = True
 MANUAL_GUIDANCE = True
+VIS_SPREADS = False # no guidance, just generate 5 trajectories and visualize them
+if VIS_SPREADS:
+    assert not MANUAL_GUIDANCE
+    assert not INTERVENTIONS
 import random
 
 
@@ -1168,7 +1182,8 @@ class PI05PolicyTaco(PreTrainedPolicy):
         self.count = 0
 
         self.reset()
-        self.vlm_client = VLMClient(server_url="http://127.0.0.1:60721")
+        if INTERVENTIONS:
+            self.vlm_client = VLMClient(server_url="http://127.0.0.1:38477")
         if USE_WRIST:
             prompt_template_path = "src/lerobot/policies/pi05/vlm_prompt_template_wrist.txt"
         else:
@@ -1430,7 +1445,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             guidance_scale = 40.0
             num_trajs = 5
             print(f"\nGenerating action chunk number {self.count}")
-            if self.count % intervention_period == 0 and INTERVENTIONS and not MANUAL_GUIDANCE:  # intervene
+            if self.count % intervention_period == 0 and INTERVENTIONS and not (MANUAL_GUIDANCE or VIS_SPREADS):  # intervene
                 print(f"Intervention step...")
                 actions = self.predict_action_chunk(
                     batch,
@@ -1473,7 +1488,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     guidance_scale=guidance_scale,
                     consistency_guidance=None,
                     )
-            if MANUAL_GUIDANCE:
+            elif MANUAL_GUIDANCE:
                 print(f"Manual guidance step...")
                 # Example of manual guidance: guide to move right
                 guidance_action = None
@@ -1486,6 +1501,24 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     guidance_scale=guidance_scale,
                     consistency_guidance=None,
                     )
+            elif VIS_SPREADS:
+                actions = self.predict_action_chunk(
+                    batch,
+                    num_samples=10,
+                    guidance_actions=None,
+                    guidance_scale=None,
+                    consistency_guidance=consistency_guidance_action,
+                    )
+                _, _ = visualize_trajectories_on_camera(
+                    batch,
+                    actions.cpu().numpy(),
+                    robot,
+                    actions_are_normalized=True,
+                    postprocessor=postprocessor,
+                    name=f"predicted_actions_{self.count}",
+                    save_imgs=True,
+                    )
+                actions = actions[0:1]
             else:  # no intervention
                 print(f"No intervention ...")
                 actions = self.predict_action_chunk(
@@ -1515,7 +1548,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             # actions = actions[0:1]
             self.count += 1
             self._action_queue.extend(actions.transpose(0, 1))
-
+            # sys.exit(0)
         return self._action_queue.popleft()
 
     @torch.no_grad()
@@ -1662,7 +1695,7 @@ def visualize_trajectories_on_camera(
             draw_arrow_head = True
             downsample = 5
         for i in range(action.shape[0]):
-            traj_color = TRAJ_COLORS[i]
+            traj_color = TRAJ_COLORS[i % len(TRAJ_COLORS)]
             points_2D, depths = project_3d_to_2d(action[i, ::downsample, :3], extrinsic, intrinsic)
             draw_lines(points_2D, image_np, depths > 0, traj_color, i==0, line_thickness=line_thickness, draw_arrow_head=draw_arrow_head)
         # Add legend with color names
