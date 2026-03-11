@@ -99,6 +99,7 @@ if vlm_io_path.exists() and vlm_io_path.is_dir():
             file.unlink()
 
 INTERVENTIONS = False
+TRAJ_STD_PERTURB = 0.01  # 0.01
 USE_WRIST = True
 MANUAL_GUIDANCE = False
 VIS_SPREADS = False # no guidance, just generate 5 trajectories and visualize them
@@ -1471,6 +1472,10 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     guidance_scale=None,
                     consistency_guidance=None,
                     )
+                if TRAJ_STD_PERTURB > 0.0:
+                    # Apply perturbation only to trajectory points, not the origin (first point)
+                    perturbation = torch.randn_like(actions[:, 1:, :3]) * TRAJ_STD_PERTURB
+                    actions[:, 1:, :3] += perturbation
                 idcs = select_representative_trajectories(actions, num_trajectories=num_trajs)
                 actions = actions[idcs]
                 front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
