@@ -18,6 +18,7 @@ import builtins
 import logging
 import math
 from collections import deque
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 import cv2
@@ -28,7 +29,7 @@ import torch.nn.functional as F  # noqa: N812
 from torch import Tensor, nn
 
 from lerobot.utils.import_utils import _transformers_available
-from lerobot.policies.pi05.action_primitives import get_guidance_action_from_text, get_consistency_guidance
+from lerobot.policies.pi05.action_primitives import get_guidance_action_from_text, get_consistency_guidance, LABEL2ACTION
 
 assert _transformers_available, "Transformers library is required for modeling_pi05.py"
 from transformers.models.auto import CONFIG_MAPPING
@@ -98,9 +99,12 @@ if vlm_io_path.exists() and vlm_io_path.is_dir():
         if file.is_file():
             file.unlink()
 
-INTERVENTIONS = False
+# INTERVENTIONS = False
+# INTERVENTIONS = "ensemble"
+# INTERVENTIONS = "PIVOT"
+INTERVENTIONS = "ensemble"
 TRAJ_STD_PERTURB = 0.01  # 0.01
-USE_WRIST = True
+USE_WRIST = False
 MANUAL_GUIDANCE = False
 VIS_SPREADS = False # no guidance, just generate 5 trajectories and visualize them
 if VIS_SPREADS:
@@ -117,8 +121,15 @@ def color2idx(color):
         raise ValueError(f"Color '{color}' is not in the list of valid trajectory colors.")
 
 
-def save_VLM_io(pil_img: Image.Image, generated_text: str, count: int, output_dir: str | Path = "vlm_io") -> Path:
-    """Save an image with VLM output text rendered below it."""
+def save_VLM_io(
+    pil_img: Image.Image,
+    generated_text: str,
+    count: int,
+    prompt_text: str | None = None,
+    output_dir: str | Path = VLM_IO_OUTPUT_DIR,
+    suffix=None,
+) -> Path:
+    """Save an image with VLM prompt text above and output text below."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -128,42 +139,54 @@ def save_VLM_io(pil_img: Image.Image, generated_text: str, count: int, output_di
     line_spacing = 4
     max_text_width = max(1, image.width - (2 * margin))
 
-    header = f"Count: {count}"
-    body = generated_text.strip() if generated_text else ""
-    combined_text = header if not body else f"{header}\n{body}"
-
     measure_draw = ImageDraw.Draw(image)
-    lines: list[str] = []
-    for paragraph in combined_text.splitlines() or [""]:
-        paragraph = paragraph.strip()
-        if not paragraph:
-            lines.append("")
-            continue
-        words = paragraph.split()
-        current_line = words[0]
-        for word in words[1:]:
-            candidate = f"{current_line} {word}"
-            if measure_draw.textlength(candidate, font=font) <= max_text_width:
-                current_line = candidate
-            else:
-                lines.append(current_line)
-                current_line = word
-        lines.append(current_line)
+    def _wrap_text(text: str) -> list[str]:
+        lines: list[str] = []
+        for paragraph in text.splitlines() or [""]:
+            paragraph = paragraph.strip()
+            if not paragraph:
+                lines.append("")
+                continue
+            words = paragraph.split()
+            current_line = words[0]
+            for word in words[1:]:
+                candidate = f"{current_line} {word}"
+                if measure_draw.textlength(candidate, font=font) <= max_text_width:
+                    current_line = candidate
+                else:
+                    lines.append(current_line)
+                    current_line = word
+            lines.append(current_line)
+        return lines
+
+    prompt_body = prompt_text.strip() if prompt_text else ""
+    prompt_combined = "Prompt:" if not prompt_body else f"Prompt:\n{prompt_body}"
+    prompt_lines = _wrap_text(prompt_combined)
+
+    output_header = f"Count: {count}"
+    output_body = generated_text.strip() if generated_text else ""
+    output_combined = output_header if not output_body else f"{output_header}\n{output_body}"
+    output_lines = _wrap_text(output_combined)
 
     line_bbox = measure_draw.textbbox((0, 0), "Ag", font=font)
     line_height = max(1, line_bbox[3] - line_bbox[1])
-    text_height = (2 * margin) + (len(lines) * line_height) + (max(0, len(lines) - 1) * line_spacing)
-
-    canvas = Image.new("RGB", (image.width, image.height + text_height), color=(255, 255, 255))
-    canvas.paste(image, (0, 0))
+    top_text_height = (2 * margin) + (len(prompt_lines) * line_height) + (max(0, len(prompt_lines) - 1) * line_spacing)
+    bottom_text_height = (2 * margin) + (len(output_lines) * line_height) + (max(0, len(output_lines) - 1) * line_spacing)
+    canvas = Image.new("RGB", (image.width, top_text_height + image.height + bottom_text_height), color=(255, 255, 255))
+    canvas.paste(image, (0, top_text_height))
 
     draw = ImageDraw.Draw(canvas)
-    y_pos = image.height + margin
-    for line in lines:
+    y_pos = margin
+    for line in prompt_lines:
         draw.text((margin, y_pos), line, fill=(0, 0, 0), font=font)
         y_pos += line_height + line_spacing
 
-    save_path = output_path / f"vlm_io_{count:06d}.png"
+    y_pos = top_text_height + image.height + margin
+    for line in output_lines:
+        draw.text((margin, y_pos), line, fill=(0, 0, 0), font=font)
+        y_pos += line_height + line_spacing
+
+    save_path = output_path / f"vlm_io_{count:06d}{f'_{suffix}' if suffix else ''}.png"
     canvas.save(save_path, format="PNG")
     return save_path
 
@@ -1190,8 +1213,11 @@ class PI05PolicyTaco(PreTrainedPolicy):
             prompt_template_path = "src/lerobot/policies/pi05/vlm_prompt_template_wrist.txt"
         else:
             prompt_template_path = "src/lerobot/policies/pi05/vlm_prompt_template.txt"
+        primitive_prompt_template_path = "src/lerobot/policies/pi05/primitive_prompt_template.txt"
         with open(prompt_template_path, "r") as f:
-            self.text_prompt_template = f.readlines()
+            self.pivot_prompt_template = f.readlines()
+        with open(primitive_prompt_template_path, "r") as f:
+            self.primitive_prompt_template = f.readlines()
 
     @classmethod
     def from_pretrained(
@@ -1417,7 +1443,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         actions = pad_vector(batch[ACTION], self.config.max_action_dim)
         return actions
 
-    def gen_text_prompt(self, task, num_traj):
+    def gen_pivot_text_prompt(self, task, num_traj):
         trajectory_choices = ["<TRAJECTORY_CHOICES>"]
         for color_name in TRAJ_COLOR_NAMES[:num_traj]:
             color = color_name.lower()
@@ -1429,8 +1455,12 @@ class PI05PolicyTaco(PreTrainedPolicy):
         # )
         trajectory_choices.append("</TRAJECTORY_CHOICES>")
 
-        prompt = "".join(copy.copy(self.text_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
+        prompt = "".join(copy.copy(self.pivot_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
         prompt = prompt.replace("<TRAJECTORY_CHOICES>", "\n".join(trajectory_choices))
+        return prompt
+
+    def gen_primitive_text_prompt(self, task):
+        prompt = "".join(copy.copy(self.primitive_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
         return prompt
 
     @torch.no_grad()
@@ -1461,50 +1491,22 @@ class PI05PolicyTaco(PreTrainedPolicy):
             intervention_period = 1
             # consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
             guidance_scale = 40.0
-            num_trajs = 5
             print(f"\nGenerating action chunk number {self.count}")
             if self.count % intervention_period == 0 and INTERVENTIONS and not (MANUAL_GUIDANCE or VIS_SPREADS):  # intervene
                 print(f"Intervention step...")
-                actions = self.predict_action_chunk(
-                    batch,
-                    num_samples=num_trajs * 3,
-                    guidance_actions=None,
-                    guidance_scale=None,
-                    consistency_guidance=None,
-                    )
-                if TRAJ_STD_PERTURB > 0.0:
-                    # Apply perturbation only to trajectory points, not the origin (first point)
-                    perturbation = torch.randn_like(actions[:, 1:, :3]) * TRAJ_STD_PERTURB
-                    actions[:, 1:, :3] += perturbation
-                idcs = select_representative_trajectories(actions, num_trajectories=num_trajs)
-                actions = actions[idcs]
-                front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
-                    batch,
-                    actions.cpu().numpy(),
-                    robot,
-                    actions_are_normalized=True,
-                    postprocessor=postprocessor,
-                    name=f"predicted_actions_{self.count}",
-                    save_imgs=False,
-                    )
-                task = batch['task'][0].split(',')[0].split(':')[1].strip()
-                text_prompt = self.gen_text_prompt(task, num_trajs)
-                if USE_WRIST:
-                    pil_img = Image.fromarray(cv2.cvtColor(wrist_prompt_img, cv2.COLOR_BGR2RGB))
+
+                if INTERVENTIONS == "PIVOT":
+                    guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False)
+                elif INTERVENTIONS == "primitive":
+                    assert not USE_WRIST
+                    guidance_action = self.primitive_guidance(batch, postprocessor, robot, save_imgs=False)
+                elif INTERVENTIONS == "ensemble":
+                    assert not USE_WRIST
+                    pivot_guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False)
+                    primitive_guidance_action = self.primitive_guidance(batch, postprocessor, robot, save_imgs=False)
+                    guidance_action = self.action_ensemble(pivot_guidance_action, primitive_guidance_action, batch, postprocessor, robot, save_imgs=True)
                 else:
-                    pil_img = Image.fromarray(cv2.cvtColor(front_prompt_img, cv2.COLOR_BGR2RGB))
-                chosen_color, generated_text = self.vlm_client.select_trajectories(
-                    pil_img,
-                    text_prompt,
-                    num_trajs,
-                    )
-                traj_idx = color2idx(chosen_color)
-                print(f"Selected action number {traj_idx} color: {chosen_color}")
-                print(f"Reasoning: {generated_text}")
-                save_VLM_io(pil_img, generated_text, self.count)
-                guidance_action = actions[traj_idx: traj_idx + 1]
-                # guidance_action = get_guidance_action_from_text("right", postprocessor=postprocessor, robot=robot)
-                # TODO ensembling
+                    raise RuntimeError
                 actions = self.predict_action_chunk(
                     batch,
                     num_samples=1,
@@ -1682,6 +1684,118 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
         return loss, loss_dict
 
+    def action_ensemble(self, action1, action2, batch, postprocessor, robot, action1_weight=0.5, save_imgs=False):
+        assert action1.shape[0] == 1
+        assert action2.shape[0] == 1
+        action2_weight = 1.0 - action1_weight
+        combined_action = action1 * action1_weight + action2 * action2_weight
+        if save_imgs:
+            _, _ = visualize_trajectories_on_camera(
+                batch,
+                combined_action.cpu().numpy(),
+                robot=robot,
+                actions_are_normalized=True,
+                postprocessor=postprocessor,
+                name=f"ensemble_action_{self.count}",
+                save_imgs=True,
+                save_dir=VLM_IO_OUTPUT_DIR,
+                )
+        return combined_action
+
+    def primitive_guidance(self, batch, postprocessor, robot, save_imgs=False):
+        """Prompt the VLM to select from pre-defined primitives"""
+        primitive_labels = ["left", "right", "up", "down", "forward", "backward", "rotate_cw", "rotate_ccw"]
+        primitive_actions = torch.cat(
+            [
+                get_guidance_action_from_text(
+                    key,
+                    postprocessor=postprocessor,
+                    robot=robot,
+                )
+                for key in primitive_labels
+            ],
+            dim=0,
+        )
+        task = batch['task'][0].split(',')[0].split(':')[1].strip()
+        text_prompt = self.gen_primitive_text_prompt(task)
+        # front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
+        #     batch,
+        #     primitive_actions.cpu().numpy(),
+        #     robot,
+        #     actions_are_normalized=True,
+        #     postprocessor=postprocessor,
+        #     name=f"predicted_actions_{self.count}",
+        #     save_imgs=save_imgs,
+        #     )
+        image_tensor = batch['observation.images.camera_front']
+        image_np = (image_tensor[0].cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
+        front_prompt_img = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+        if USE_WRIST:
+            raise NotImplementedError
+            pil_img = Image.fromarray(cv2.cvtColor(wrist_prompt_img, cv2.COLOR_BGR2RGB))
+        else:
+            pil_img = Image.fromarray(cv2.cvtColor(front_prompt_img, cv2.COLOR_BGR2RGB))
+        chosen_label, generated_text = self.vlm_client.select_trajectories(
+            pil_img,
+            text_prompt,
+            len(primitive_labels),
+        )
+        chosen_label = str(chosen_label).strip().lower()
+        if chosen_label == "none":
+            chosen_idx = 0
+        elif chosen_label in primitive_labels:
+            chosen_idx = primitive_labels.index(chosen_label)
+        else:
+            print(f"Unknown primitive '{chosen_label}', defaulting to '{primitive_labels[0]}'")
+            chosen_idx = 0
+        print(f"Selected primitive number {chosen_idx} label: {primitive_labels[chosen_idx]}")
+        print(f"Reasoning: {generated_text}")
+        save_VLM_io(pil_img, generated_text, self.count, prompt_text=text_prompt, suffix="primitive")
+        guidance_action = primitive_actions[chosen_idx: chosen_idx + 1]
+        return guidance_action.to(batch['observation.state'].device)
+
+    def pivot(self, batch, postprocessor, robot, save_imgs=False):
+        num_trajs = 5
+        actions = self.predict_action_chunk(
+            batch,
+            num_samples=num_trajs * 3,
+            guidance_actions=None,
+            guidance_scale=None,
+            consistency_guidance=None,
+            )
+        if TRAJ_STD_PERTURB > 0.0:
+            # Apply perturbation only to trajectory points, not the origin (first point)
+            perturbation = torch.randn_like(actions[:, 1:, :3]) * TRAJ_STD_PERTURB
+            actions[:, 1:, :3] += perturbation
+        idcs = select_representative_trajectories(actions, num_trajectories=num_trajs)
+        actions = actions[idcs]
+        front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
+            batch,
+            actions.cpu().numpy(),
+            robot,
+            actions_are_normalized=True,
+            postprocessor=postprocessor,
+            name=f"predicted_actions_{self.count}",
+            save_imgs=save_imgs,
+            )
+        task = batch['task'][0].split(',')[0].split(':')[1].strip()
+        text_prompt = self.gen_pivot_text_prompt(task, num_trajs)
+        if USE_WRIST:
+            pil_img = Image.fromarray(cv2.cvtColor(wrist_prompt_img, cv2.COLOR_BGR2RGB))
+        else:
+            pil_img = Image.fromarray(cv2.cvtColor(front_prompt_img, cv2.COLOR_BGR2RGB))
+        chosen_color, generated_text = self.vlm_client.select_trajectories(
+            pil_img,
+            text_prompt,
+            num_trajs,
+            )
+        traj_idx = color2idx(chosen_color)
+        print(f"Selected action number {traj_idx} color: {chosen_color}")
+        print(f"Reasoning: {generated_text}")
+        save_VLM_io(pil_img, generated_text, self.count, prompt_text=text_prompt, suffix="pivot")
+        guidance_action = actions[traj_idx: traj_idx + 1]
+        return guidance_action
+
 
 def visualize_trajectories_on_camera(
     batch,
@@ -1691,6 +1805,7 @@ def visualize_trajectories_on_camera(
     postprocessor=None,
     name="test",
     save_imgs=False,
+    save_dir=None,
     ):
     padding = 0
     if actions_are_normalized:
@@ -1724,14 +1839,18 @@ def visualize_trajectories_on_camera(
             draw_lines(points_2D, image_np, depths > 0, traj_color, i==0, line_thickness=line_thickness, draw_arrow_head=draw_arrow_head)
         # Add legend with color names
         legend_y = 30
-        for i, color in enumerate(TRAJ_COLORS):
+        for i, color in enumerate(TRAJ_COLORS[:action.shape[0]]):
             cv2.circle(image_np, (30, legend_y), 6, color, -1)
             cv2.putText(image_np, TRAJ_COLOR_NAMES[i], (45, legend_y + 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
             legend_y += 25
         outputs[img_key] = image_np
         if save_imgs:
-            cv2.imwrite(f"{name}_{img_key.split('.')[-1]}.png", image_np)
+            img_name = f"{name}_{img_key.split('.')[-1]}.png"
+            if save_dir is not None:
+                os.makedirs(save_dir, exist_ok=True)
+                img_name = os.path.join(save_dir, img_name)
+            cv2.imwrite(img_name, image_np)
 
     return outputs['observation.images.camera_front'], outputs['observation.images.camera_wrist']
 

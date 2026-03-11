@@ -4,23 +4,20 @@
 
 The task is to:  <TASK_DESCRIPTION/>
 
-- The robot will fail the task if it encounters too high a cumulative force.
-- The robot has detected high uncertainty in its next action and requires your expert guidance to select the best path forward.
-- If all proposed trajectories appear unsafe or incorrect, it is best to reject all of them.
 </SITUATION>
 
 <TRAJECTORY_CHOICES>
 
-Analyze the scene and the proposed trajectories to determine which, if any, is the best path for the robot to follow to achieve its current task.
+Analyze the scene and the proposed trajectories to determine which is the best path for the robot to follow to achieve its current task.
 
 <OUTPUT_FORMAT>
 You must conclude your response with a single, well-formed JSON object and nothing else. Do not use markdown formatting (like ```json) or add any text before or after the JSON block.
 
 The JSON object must contain two keys: "reasoning" and "chosen_trajectory".
 
-    "reasoning": A string containing your detailed analysis of the scene and each trajectory, incorporating fine-grained visual details to justify your decision. Explain why the chosen trajectory is superior and why the others are suboptimal.
+    "reasoning": A string containing your detailed analysis of the scene and each trajectory, incorporating fine-grained visual details to justify your decision. Explain why the chosen trajectory is best.
 
-    "chosen_trajectory": A string containing one of the four valid choices: "red", "orange", "blue", "cyan", "magenta", or "none".
+    "chosen_trajectory": A string containing one of the five valid choices: "red", "orange", "blue", "cyan", "magentena".
 
 Example of a perfect response format:
 {{

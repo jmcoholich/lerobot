@@ -1,0 +1,35 @@
+<SITUATION>
+- The robot has paused execution because the base policy is uncertain.
+- The name of each primitive is defined below in the Primitive List.
+
+The task is to: <TASK_DESCRIPTION/>
+
+<PRIMITIVE_LIST>
+- "Left": translate the gripper to the left
+- "Right": translate the gripper to the right
+- "Up": translate the gripper vertically upwards
+- "Down": translate the gripper vertically downwards
+- "Forward": move the gripper forward towards the camera
+- "Backward": move the gripper backward away from the camera
+- "Rotate CW": rotate the gripper clockwise about the vertical z-axis
+- "Rotate CCW": rotate the gripper counter-clockwise about the vertical z-axis
+</PRIMITIVE_LIST>
+
+Select the best primitive for task completion.
+
+</SITUATION>
+
+<OUTPUT_FORMAT>
+You must conclude your response with a single, well-formed JSON object and nothing else. Do not use markdown formatting (like ```json) or add any text before or after the JSON block.
+
+The JSON object must contain two keys: "reasoning" and "chosen_trajectory".
+
+    "reasoning": Explain why the chosen primitive is best for completing the task.
+    "chosen_trajectory": A string containing the name of the best primitive. If no primitive helps, choose "none".
+
+Example of a perfect response format:
+{
+  "reasoning": str.
+  "chosen_trajectory": str.
+}
+</OUTPUT_FORMAT>
