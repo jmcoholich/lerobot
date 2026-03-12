@@ -121,6 +121,34 @@ def color2idx(color):
         raise ValueError(f"Color '{color}' is not in the list of valid trajectory colors.")
 
 
+def format_natural_language_list(items: list[str]) -> str:
+    """Format items like 'a, b, and c' for prompt text."""
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
+def format_small_number_word(value: int) -> str:
+    """Format numbers below 10 as words for prompt text."""
+    number_words = {
+        0: "zero",
+        1: "one",
+        2: "two",
+        3: "three",
+        4: "four",
+        5: "five",
+        6: "six",
+        7: "seven",
+        8: "eight",
+        9: "nine",
+    }
+    return number_words.get(value, str(value))
+
+
 def save_VLM_io(
     pil_img: Image.Image,
     generated_text: str,
@@ -1445,8 +1473,8 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
     def gen_pivot_text_prompt(self, task, num_traj):
         trajectory_choices = ["<TRAJECTORY_CHOICES>"]
-        for color_name in TRAJ_COLOR_NAMES[:num_traj]:
-            color = color_name.lower()
+        colors = [color_name.lower() for color_name in TRAJ_COLOR_NAMES[:num_traj]]
+        for color in colors:
             trajectory_choices.append(
                 f'    "{color}": Choose this to command the robot to follow the {color} path.'
             )
@@ -1457,6 +1485,9 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
         prompt = "".join(copy.copy(self.pivot_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
         prompt = prompt.replace("<TRAJECTORY_CHOICES>", "\n".join(trajectory_choices))
+        prompt = prompt.replace("<NUM_TRAJECTORIES/>", format_small_number_word(num_traj))
+        prompt = prompt.replace("<TRAJECTORY_COLOR_LIST/>", format_natural_language_list(colors))
+        prompt = prompt.replace("<TRAJECTORY_COLOR_OPTIONS/>", ", ".join(f'"{color}"' for color in colors))
         return prompt
 
     def gen_primitive_text_prompt(self, task):

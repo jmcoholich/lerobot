@@ -1,6 +1,6 @@
 <SITUATION>
 - The primary camera view is from the robot's gripper. The camera image is overlaid with visualizations of potential future actions.
-- The image provided shows five potential future trajectories for the gripper, colored red, orange, blue, cyan, and magenta. These trajectories represent different options the robot's base policy is considering.
+- The image provided shows <NUM_TRAJECTORIES/> potential future trajectories for the gripper, colored <TRAJECTORY_COLOR_LIST/>. These trajectories represent different options the robot's base policy is considering.
 
 The task is to:  <TASK_DESCRIPTION/>
 
@@ -17,7 +17,7 @@ The JSON object must contain two keys: "reasoning" and "chosen_trajectory".
 
     "reasoning": A string containing your detailed analysis of the scene and each trajectory, incorporating fine-grained visual details to justify your decision. Explain why the chosen trajectory is best.
 
-    "chosen_trajectory": A string containing one of the five valid choices: "red", "orange", "blue", "cyan", "magenta".
+    "chosen_trajectory": A string containing one of the <NUM_TRAJECTORIES/> valid choices: <TRAJECTORY_COLOR_OPTIONS/>.
 
 Example of a perfect response format:
 {{
@@ -25,4 +25,3 @@ Example of a perfect response format:
   "chosen_trajectory": "str"
 }}
 </OUTPUT_FORMAT>
-
