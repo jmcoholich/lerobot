@@ -9,7 +9,7 @@ python src/lerobot/scripts/lerobot_record.py \
   --dataset.push_to_hub=false \
   --dataset.root='/home/jeremiah/.cache/huggingface/lerobot/dummy' \
   --dataset.repo_id=dummy/eval_dummy \
-  --dataset.single_task="Pick up the green block" \
+  --dataset.single_task="Pick up the dark red block" \
   --dataset.episode_time_s=30000 \
   --dataset.num_episodes=1 \
   --policy.dtype=bfloat16 \

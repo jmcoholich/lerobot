@@ -65,29 +65,54 @@ VLLM_SERVERS=(
     "http://ig-88.cc.gatech.edu:56151",
 )
 
+# TRAJ_COLORS = (
+#     (0, 0, 255),    # Red
+#     (0, 165, 255),  # Orange
+#     (255, 0, 0),    # Blue
+#     (255, 255, 0),  # Cyan
+#     (255, 0, 255),  # Magenta
+#     (0, 255, 0),    # Green
+#     (255, 255, 255),# White
+#     (0, 255, 255),  # Yellow
+#     (128, 0, 128),  # Purple
+#     (19, 69, 139),  # Brown
+# )
+# TRAJ_COLOR_NAMES = (
+#     "Red",
+#     "Orange",
+#     "Blue",
+#     "Cyan",
+#     "Magenta",
+#     "Green",
+#     "White",
+#     "Yellow",
+#     "Purple",
+#     "Brown",
+# )
+
 TRAJ_COLORS = (
-    (0, 0, 255),    # Red
     (0, 165, 255),  # Orange
     (255, 0, 0),    # Blue
     (255, 255, 0),  # Cyan
-    (255, 0, 255),  # Magenta
     (0, 255, 0),    # Green
     (255, 255, 255),# White
     (0, 255, 255),  # Yellow
     (128, 0, 128),  # Purple
     (19, 69, 139),  # Brown
+    (0, 0, 255),    # Red
+    (255, 0, 255),  # Magenta
 )
 TRAJ_COLOR_NAMES = (
-    "Red",
     "Orange",
     "Blue",
     "Cyan",
-    "Magenta",
     "Green",
     "White",
     "Yellow",
     "Purple",
     "Brown",
+    "Red",
+    "Magenta",
 )
 
 VLM_IO_OUTPUT_DIR = "vlm_io"
@@ -99,10 +124,10 @@ if vlm_io_path.exists() and vlm_io_path.is_dir():
         if file.is_file():
             file.unlink()
 
-# INTERVENTIONS = False
-# INTERVENTIONS = "ensemble"
+INTERVENTIONS = False
 # INTERVENTIONS = "PIVOT"
-INTERVENTIONS = "ensemble"
+# INTERVENTIONS = "primitive"
+# INTERVENTIONS = "ensemble"
 TRAJ_STD_PERTURB = 0.01  # 0.01
 USE_WRIST = False
 MANUAL_GUIDANCE = False
@@ -1521,9 +1546,9 @@ class PI05PolicyTaco(PreTrainedPolicy):
                 sys.exit(0)
             intervention_period = 1
             # consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
-            guidance_scale = 40.0
+            guidance_scale = 20.0
             print(f"\nGenerating action chunk number {self.count}")
-            if self.count % intervention_period == 0 and INTERVENTIONS and not (MANUAL_GUIDANCE or VIS_SPREADS):  # intervene
+            if (self.count == 0 or self.count == 1) and INTERVENTIONS and not (MANUAL_GUIDANCE or VIS_SPREADS):  # intervene
                 print(f"Intervention step...")
                 print(f"Intervention mode: {INTERVENTIONS}")
                 if INTERVENTIONS == "PIVOT":
