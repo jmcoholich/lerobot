@@ -19,8 +19,8 @@ source /coc/testnvme/$USER/.bashrc
 conda activate lerobot
 
 python src/lerobot/scripts/lerobot_train.py\
-    --dataset.repo_id=eve_blocks_cartesian_triple \
-    --dataset.root='/coc/testnvme/jcoholich3/lerobot_data/eve_blocks_cartesian_triple' \
+    --dataset.repo_id=bimodal_blocks_in_bin \
+    --dataset.root='/coc/testnvme/jcoholich3/lerobot_data/bimodal_blocks_in_bin' \
     --policy.type=pi05 \
     --output_dir=$OUTDIR \
     --job_name=$JOB_NAME \
@@ -34,10 +34,12 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.train_expert_only=false \
     --policy.chunk_size=$CHUNK \
     --policy.n_action_steps=$CHUNK \
-    --steps=3000 \
+    --steps=6000 \
     --policy.optimizer_lr=$LR \
     --policy.device=cuda \
     --batch_size=32 \
     --log_freq=5 \
     --save_freq=500 \
+    --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
+
 
