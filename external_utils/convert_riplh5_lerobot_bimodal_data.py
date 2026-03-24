@@ -5,9 +5,9 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
 
 # Configuration
-REPO_ID = "lerobot/bimodal_blocks_in_bin"
-DATASET_NAME = "bimodal_blocks_in_bin"
-ORIG_DATASET_PATH = Path("/home/jeremiah/openteach/extracted_data/both_in_bin_mixed_h5")
+REPO_ID = "lerobot/both_in_bin_interleaved"
+DATASET_NAME = "both_in_bin_interleaved"
+ORIG_DATASET_PATH = Path("/home/jeremiah/openteach/extracted_data/both_in_bin_interleaved/h5_files")
 FPS = 20
 ROOT_DIR = Path(f"/data3/lerobot_data/{DATASET_NAME}")  # Where the dataset will be created locally
 
