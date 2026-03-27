@@ -21,6 +21,7 @@ np.set_printoptions(
 # Debug flag allows inference without connecting to the robot
 DEBUG = False
 DELTA_JOINT_ACTIONS = False
+JOINT_ACTIONS = True
 class FrankaRobot(Robot):
     config_class = FrankaConfig
     name = "franka"
@@ -57,7 +58,7 @@ class FrankaRobot(Robot):
             teleoperation_reset_port = None,
             record='test_lerobot',
             )
-        if DELTA_JOINT_ACTIONS:
+        if DELTA_JOINT_ACTIONS or JOINT_ACTIONS:
             with open(os.path.join(CONFIG_ROOT, "joint-pos-controller-impedance.yml"), "r") as f:
                 joint_controller_cfg = EasyDict(yaml.safe_load(f))
             self.operator.velocity_controller_cfg = joint_controller_cfg
@@ -105,6 +106,17 @@ class FrankaRobot(Robot):
                 "d_joint7": float,
                 "gripper": float,
             }
+        elif JOINT_ACTIONS:
+            return {
+                "joint1": float,
+                "joint2": float,
+                "joint3": float,
+                "joint4": float,
+                "joint5": float,
+                "joint6": float,
+                "joint7": float,
+                "gripper": float,
+            }
         else:
             return {
                 "x": float,
@@ -123,6 +135,8 @@ class FrankaRobot(Robot):
     def send_action(self, action) -> None:
         if DELTA_JOINT_ACTIONS:
             self.send_delta_joint_action(action)
+        elif JOINT_ACTIONS:
+            self.send_joint_action(action)
         else:
             self.send_abs_cartesian_action(action)
 
@@ -131,6 +145,10 @@ class FrankaRobot(Robot):
         for i in range(7):
             joint_delta_action[i] += self.operator.robot_interface.last_q[i]
         self.operator.arm_control(None, None, playback_actions=(joint_delta_action, action["gripper"]))
+
+    def send_joint_action(self, action) -> None:
+        abs_joint_action = [action["joint1"], action["joint2"], action["joint3"], action["joint4"], action["joint5"], action["joint6"], action["joint7"]]
+        self.operator.arm_control(None, None, playback_actions=(abs_joint_action, action["gripper"]))
 
     def send_abs_cartesian_action(self, action) -> None:
         abs_eef_pose = [action["x"], action["y"], action["z"], action["quat_x"], action["quat_y"], action["quat_z"], action["quat_w"]]
