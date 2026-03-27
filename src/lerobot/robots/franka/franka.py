@@ -21,7 +21,7 @@ np.set_printoptions(
 # Debug flag allows inference without connecting to the robot
 DEBUG = False
 DELTA_JOINT_ACTIONS = False
-JOINT_ACTIONS = True
+JOINT_ACTIONS = False
 class FrankaRobot(Robot):
     config_class = FrankaConfig
     name = "franka"
