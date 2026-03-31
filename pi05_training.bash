@@ -11,6 +11,7 @@ JOB_NAME=$1
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=100
 LR=5e-5
+DATASET='eve_blocks_6x_abs_joint'
 
 echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
@@ -19,13 +20,13 @@ source /coc/testnvme/$USER/.bashrc
 conda activate lerobot
 
 python src/lerobot/scripts/lerobot_train.py\
-    --dataset.repo_id=bimodal_blocks_in_bin \
-    --dataset.root='/coc/testnvme/jcoholich3/lerobot_data/bimodal_blocks_in_bin' \
+    --dataset.repo_id=$DATASET \
+    --dataset.root="/coc/testnvme/jcoholich3/lerobot_data/$DATASET" \
     --policy.type=pi05 \
     --output_dir=$OUTDIR \
     --job_name=$JOB_NAME \
     --policy.repo_id=your_repo_id \
-    --policy.pretrained_path=lerobot/pi05_base \
+    --policy.pretrained_path=jcoholich/pi05_droid_converted \
     --policy.compile_model=false \
     --policy.gradient_checkpointing=true \
     --wandb.enable=true \

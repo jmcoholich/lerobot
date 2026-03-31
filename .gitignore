@@ -13,6 +13,8 @@
 # limitations under the License.
 vlm_io/
 outputs
+eval_logs/
+.codex
 prompting_experiments/
 input_args_0.pkl
 input_args_1.pkl
