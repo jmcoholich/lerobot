@@ -56,9 +56,9 @@ from functools import partial
 from safetensors.torch import load_file
 from .vlm_client import VLMClient
 from PIL import Image, ImageDraw, ImageFont
-# ssh -N -f -L localhost:38477:localhost:38477 -J jcoholich3@sky1.cc.gatech.edu jcoholich3@optimistprime.cc.gatech.edu
+# ssh -N -f -L localhost:35959:localhost:35959 -J jcoholich3@sky1.cc.gatech.edu jcoholich3@perseverance.cc.gatech.edu
 VLLM_SERVERS=(
-    "http://optimistprime.cc.gatech.edu:38477",
+    "http://perseverance.cc.gatech.edu:35959",
     "http://clippy.cc.gatech.edu:56749",
     "http://shakey.cc.gatech.edu:53727",
     "http://cheetah.cc.gatech.edu:33793",
@@ -92,27 +92,27 @@ VLLM_SERVERS=(
 
 TRAJ_COLORS = (
     (0, 165, 255),  # Orange
-    (255, 0, 0),    # Blue
-    (255, 255, 0),  # Cyan
+    (128, 0, 128),  # Purple
+    (19, 69, 139),  # Brown
     (0, 255, 0),    # Green
     (255, 255, 255),# White
     (0, 255, 255),  # Yellow
-    (128, 0, 128),  # Purple
-    (19, 69, 139),  # Brown
     (0, 0, 255),    # Red
     (255, 0, 255),  # Magenta
+    (255, 0, 0),    # Blue
+    (255, 255, 0),  # Cyan
 )
 TRAJ_COLOR_NAMES = (
     "Orange",
-    "Blue",
-    "Cyan",
+    "Purple",
+    "Brown",
     "Green",
     "White",
     "Yellow",
-    "Purple",
-    "Brown",
     "Red",
     "Magenta",
+    "Blue",
+    "Cyan",
 )
 
 VLM_IO_OUTPUT_DIR = "vlm_io"
@@ -124,6 +124,7 @@ if vlm_io_path.exists() and vlm_io_path.is_dir():
         if file.is_file():
             file.unlink()
 
+MAX_CHUNKS = 6
 INTERVENTIONS = False
 # INTERVENTIONS = "PIVOT"
 # INTERVENTIONS = "primitive"
@@ -1261,7 +1262,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
         self.reset()
         if INTERVENTIONS:
-            self.vlm_client = VLMClient(server_url="http://127.0.0.1:38477")
+            self.vlm_client = VLMClient(server_url="http://127.0.0.1:35959")
         if USE_WRIST:
             prompt_template_path = "src/lerobot/policies/pi05/vlm_prompt_template_wrist.txt"
         else:
@@ -1542,7 +1543,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         # guidance_action = None
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
-            if self.count == 4 and not MANUAL_GUIDANCE:
+            if self.count == MAX_CHUNKS and not MANUAL_GUIDANCE:
                 sys.exit(0)
             intervention_period = 1
             # consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
