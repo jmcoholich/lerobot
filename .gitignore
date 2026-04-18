@@ -14,6 +14,7 @@
 vlm_io/
 outputs
 eval_logs/
+extracted_data
 .codex
 prompting_experiments/
 input_args_0.pkl

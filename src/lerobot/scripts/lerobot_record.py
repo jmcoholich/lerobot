@@ -561,23 +561,23 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                 dataset.save_episode()
                 recorded_episodes += 1
     finally:
-        log_say("Stop recording", cfg.play_sounds, blocking=True)
+        # log_say("Stop recording", cfg.play_sounds, blocking=True)
 
-        if dataset:
-            dataset.finalize()
+        # if dataset:
+        #     dataset.finalize()
 
         if robot.is_connected:
             robot.disconnect()
-        if teleop and teleop.is_connected:
-            teleop.disconnect()
+        # if teleop and teleop.is_connected:
+        #     teleop.disconnect()
 
         if not is_headless() and listener:
             listener.stop()
 
-        if cfg.dataset.push_to_hub:
-            dataset.push_to_hub(tags=cfg.dataset.tags, private=cfg.dataset.private)
+        # if cfg.dataset.push_to_hub:
+        #     dataset.push_to_hub(tags=cfg.dataset.tags, private=cfg.dataset.private)
 
-        log_say("Exiting", cfg.play_sounds)
+        # log_say("Exiting", cfg.play_sounds)
     return dataset
 
 
