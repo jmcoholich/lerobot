@@ -20,6 +20,7 @@ np.set_printoptions(
 
 # Debug flag allows inference without connecting to the robot
 DEBUG = False
+TORQUE_OBS = False
 class FrankaRobot(Robot):
     config_class = FrankaConfig
     name = "franka"
@@ -81,17 +82,37 @@ class FrankaRobot(Robot):
 
     @property
     def observation_features(self) -> dict:
-        return {
-             "joint_pos.1": float,
-             "joint_pos.2": float,
-             "joint_pos.3": float,
-             "joint_pos.4": float,
-             "joint_pos.5": float,
-             "joint_pos.6": float,
-             "joint_pos.7": float,
-             "gripper_pos": float,
-            **self._cameras_ft,
-            }
+        if TORQUE_OBS:
+            return {
+                "joint1": float,
+                "joint2": float,
+                "joint3": float,
+                "joint4": float,
+                "joint5": float,
+                "joint6": float,
+                "joint7": float,
+                "gripper_pos": float,
+                "joint1_tau": float,
+                "joint2_tau": float,
+                "joint3_tau": float,
+                "joint4_tau": float,
+                "joint5_tau": float,
+                "joint6_tau": float,
+                "joint7_tau": float,
+                **self._cameras_ft,
+                }
+        else:
+            return {
+                "joint1": float,
+                "joint2": float,
+                "joint3": float,
+                "joint4": float,
+                "joint5": float,
+                "joint6": float,
+                "joint7": float,
+                "gripper_pos": float,
+                **self._cameras_ft,
+                }
 
     @property
     def action_features(self) -> dict:
@@ -184,6 +205,10 @@ class FrankaRobot(Robot):
 
             joint_pos = self.operator.robot_interface.last_q.tolist()
             for i, pos in enumerate(joint_pos):
-                obs_dict[f"joint_pos.{i+1}"] = pos
+                obs_dict[f"joint{i+1}"] = pos
             obs_dict["gripper_pos"] = self.operator.robot_interface.last_gripper_q
+            if TORQUE_OBS:
+                joint_torques = self.operator.robot_interface.last_tau_ext_hat_filtered.tolist()
+                for i, tau in enumerate(joint_torques):
+                    obs_dict[f"joint{i+1}_tau"] = tau
         return obs_dict
