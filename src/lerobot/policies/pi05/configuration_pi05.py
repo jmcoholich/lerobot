@@ -80,6 +80,8 @@ class PI05Config(PreTrainedConfig):
     # Finetuning settings
     freeze_vision_encoder: bool = False  # Freeze only the vision encoder
     train_expert_only: bool = False  # Freeze entire VLM, train only action expert and projections
+    use_value_model: bool = False  # Replace the action expert branch with a scalar value head.
+    value_dim: int = 2  # Number of scalar values to predict.
 
     # Optimizer settings: see openpi `AdamW`
     optimizer_lr: float = 2.5e-5  # see openpi `CosineDecaySchedule: peak_lr`
@@ -114,6 +116,9 @@ class PI05Config(PreTrainedConfig):
 
         if self.dtype not in ["bfloat16", "float32"]:
             raise ValueError(f"Invalid dtype: {self.dtype}")
+
+        if self.value_dim <= 0:
+            raise ValueError(f"value_dim must be positive, got {self.value_dim}")
 
     def validate_features(self) -> None:
         """Validate and set up input/output features."""
