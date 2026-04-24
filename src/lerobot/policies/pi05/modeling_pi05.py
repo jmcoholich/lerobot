@@ -528,6 +528,104 @@ class PaliGemmaWithExpertModel(
         return [prefix_output, suffix_output], prefix_past_key_values
 
 
+class PaliGemmaBackboneModel(nn.Module):
+    """PaliGemma backbone used by the PI05 value model."""
+
+    def __init__(
+        self,
+        vlm_config,
+        precision: Literal["bfloat16", "float32"] = "bfloat16",
+        image_size: int = DEFAULT_IMAGE_SIZE,
+        freeze_vision_encoder: bool = False,
+        train_value_head_only: bool = False,
+    ):
+        super().__init__()
+        self.freeze_vision_encoder = freeze_vision_encoder
+        self.train_value_head_only = train_value_head_only
+
+        vlm_config_hf = CONFIG_MAPPING["paligemma"]()
+        vlm_config_hf._vocab_size = 257152  # noqa: SLF001
+        vlm_config_hf.image_token_index = 257152
+        vlm_config_hf.text_config.hidden_size = vlm_config.width
+        vlm_config_hf.text_config.intermediate_size = vlm_config.mlp_dim
+        vlm_config_hf.text_config.num_attention_heads = vlm_config.num_heads
+        vlm_config_hf.text_config.head_dim = vlm_config.head_dim
+        vlm_config_hf.text_config.num_hidden_layers = vlm_config.depth
+        vlm_config_hf.text_config.num_key_value_heads = vlm_config.num_kv_heads
+        vlm_config_hf.text_config.hidden_activation = "gelu_pytorch_tanh"
+        vlm_config_hf.text_config.torch_dtype = "float32"
+        vlm_config_hf.text_config.vocab_size = 257152
+        vlm_config_hf.text_config.use_adarms = False
+        vlm_config_hf.vision_config.image_size = image_size
+        vlm_config_hf.vision_config.intermediate_size = 4304
+        vlm_config_hf.vision_config.projection_dim = 2048
+        vlm_config_hf.vision_config.projector_hidden_act = "gelu_fast"
+        vlm_config_hf.vision_config.torch_dtype = "float32"
+
+        self.paligemma = PaliGemmaForConditionalGeneration(config=vlm_config_hf)
+        self.to_bfloat16_for_selected_params(precision)
+        self._set_requires_grad()
+
+    def to_bfloat16_for_selected_params(self, precision: Literal["bfloat16", "float32"] = "bfloat16"):
+        if precision == "bfloat16":
+            self.to(dtype=torch.bfloat16)
+        elif precision == "float32":
+            self.to(dtype=torch.float32)
+            return
+        else:
+            raise ValueError(f"Invalid precision: {precision}")
+
+        params_to_keep_float32 = [
+            "vision_tower.vision_model.embeddings.patch_embedding.weight",
+            "vision_tower.vision_model.embeddings.patch_embedding.bias",
+            "vision_tower.vision_model.embeddings.position_embedding.weight",
+            "input_layernorm",
+            "post_attention_layernorm",
+            "model.norm",
+        ]
+
+        for name, param in self.named_parameters():
+            if any(selector in name for selector in params_to_keep_float32):
+                param.data = param.data.to(dtype=torch.float32)
+
+    def _set_requires_grad(self):
+        if self.freeze_vision_encoder:
+            self.paligemma.vision_tower.eval()
+            for param in self.paligemma.vision_tower.parameters():
+                param.requires_grad = False
+        if self.train_value_head_only:
+            self.paligemma.eval()
+            for param in self.paligemma.parameters():
+                param.requires_grad = False
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if self.freeze_vision_encoder:
+            self.paligemma.vision_tower.eval()
+        if self.train_value_head_only:
+            self.paligemma.eval()
+
+    def embed_image(self, image: torch.Tensor):
+        return self.paligemma.model.get_image_features(image)
+
+    def embed_language_tokens(self, tokens: torch.Tensor):
+        return self.paligemma.language_model.embed_tokens(tokens)
+
+    def forward(
+        self,
+        attention_mask: torch.Tensor | None = None,
+        position_ids: torch.LongTensor | None = None,
+        inputs_embeds: torch.FloatTensor | None = None,
+    ):
+        output = self.paligemma.language_model.forward(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            use_cache=False,
+        )
+        return output.last_hidden_state
+
+
 class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
     """Core PI05 PyTorch model."""
 
@@ -892,6 +990,158 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         return self.action_out_proj(suffix_out)
 
 
+class PI05ValuePytorch(nn.Module):
+    """PI05 variant that predicts scalar values from the shared VLM backbone."""
+
+    def __init__(self, config: PI05Config):
+        super().__init__()
+        self.config = config
+
+        paligemma_config = get_gemma_config(config.paligemma_variant)
+
+        if config.image_resolution[0] != config.image_resolution[1]:
+            raise ValueError(
+                f"PaliGemma expects square image resolution, invalid resolution: {config.image_resolution}"
+            )
+
+        self.paligemma_backbone = PaliGemmaBackboneModel(
+            paligemma_config,
+            precision=config.dtype,
+            image_size=config.image_resolution[0],
+            freeze_vision_encoder=config.freeze_vision_encoder,
+            train_value_head_only=config.train_expert_only,
+        )
+        self.value_tokens = nn.Parameter(torch.randn(config.value_dim, paligemma_config.width) * 0.02)
+        self.value_head = nn.Sequential(
+            nn.Linear(paligemma_config.width, paligemma_config.width),
+            nn.SiLU(),
+            nn.Linear(paligemma_config.width, 1),
+        )
+
+        self.gradient_checkpointing_enabled = False
+
+        if config.compile_model:
+            torch.set_float32_matmul_precision("high")
+            self.forward = torch.compile(self.forward, mode=config.compile_mode)
+
+        msg = """An incorrect transformer version is used, please create an issue on https://github.com/huggingface/lerobot/issues"""
+
+        try:
+            from transformers.models.siglip import check
+
+            if not check.check_whether_transformers_replace_is_installed_correctly():
+                raise ValueError(msg)
+        except ImportError:
+            raise ValueError(msg) from None
+
+    def gradient_checkpointing_enable(self):
+        self.gradient_checkpointing_enabled = True
+        self.paligemma_backbone.paligemma.language_model.gradient_checkpointing = True
+        self.paligemma_backbone.paligemma.vision_tower.gradient_checkpointing = True
+        logging.info("Enabled gradient checkpointing for PI05ValuePytorch model")
+
+    def gradient_checkpointing_disable(self):
+        self.gradient_checkpointing_enabled = False
+        self.paligemma_backbone.paligemma.language_model.gradient_checkpointing = False
+        self.paligemma_backbone.paligemma.vision_tower.gradient_checkpointing = False
+        logging.info("Disabled gradient checkpointing for PI05ValuePytorch model")
+
+    def _apply_checkpoint(self, func, *args, **kwargs):
+        if self.gradient_checkpointing_enabled and self.training:
+            return torch.utils.checkpoint.checkpoint(
+                func, *args, use_reentrant=False, preserve_rng_state=False, **kwargs
+            )
+        return func(*args, **kwargs)
+
+    def _prepare_attention_masks_4d(self, att_2d_masks):
+        att_2d_masks_4d = att_2d_masks[:, None, :, :]
+        return torch.where(att_2d_masks_4d, 0.0, OPENPI_ATTENTION_MASK_VALUE)
+
+    def embed_prefix(
+        self, images, img_masks, tokens, masks
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        embs = []
+        pad_masks = []
+        att_masks = []
+
+        for img, img_mask in zip(images, img_masks, strict=True):
+
+            def image_embed_func(img):
+                return self.paligemma_backbone.embed_image(img)
+
+            img_emb = self._apply_checkpoint(image_embed_func, img)
+            bsize, num_img_embs = img_emb.shape[:2]
+
+            embs.append(img_emb)
+            pad_masks.append(img_mask[:, None].expand(bsize, num_img_embs))
+            att_masks += [0] * num_img_embs
+
+        def lang_embed_func(tokens):
+            lang_emb = self.paligemma_backbone.embed_language_tokens(tokens)
+            lang_emb_dim = lang_emb.shape[-1]
+            return lang_emb * math.sqrt(lang_emb_dim)
+
+        lang_emb = self._apply_checkpoint(lang_embed_func, tokens)
+        embs.append(lang_emb)
+        pad_masks.append(masks)
+
+        num_lang_embs = lang_emb.shape[1]
+        att_masks += [0] * num_lang_embs
+
+        embs = torch.cat(embs, dim=1)
+        pad_masks = torch.cat(pad_masks, dim=1)
+        att_masks = torch.tensor(att_masks, dtype=torch.bool, device=pad_masks.device)
+
+        bsize = pad_masks.shape[0]
+        att_masks = att_masks[None, :].expand(bsize, len(att_masks))
+
+        return embs, pad_masks, att_masks
+
+    def embed_value_tokens(self, batch_size: int, device: torch.device, dtype: torch.dtype):
+        value_embs = self.value_tokens.to(device=device, dtype=dtype).unsqueeze(0).expand(batch_size, -1, -1)
+        value_pad_masks = torch.ones(
+            batch_size, self.config.value_dim, dtype=torch.bool, device=device
+        )
+        value_att_masks = torch.ones(
+            batch_size, self.config.value_dim, dtype=torch.bool, device=device
+        )
+        value_att_masks[:, 1:] = 0
+        return value_embs, value_pad_masks, value_att_masks
+
+    def forward(self, images, img_masks, tokens, masks, target_values) -> Tensor:
+        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, tokens, masks)
+        value_embs, value_pad_masks, value_att_masks = self.embed_value_tokens(
+            batch_size=tokens.shape[0],
+            device=tokens.device,
+            dtype=prefix_embs.dtype,
+        )
+
+        embs = torch.cat([prefix_embs, value_embs], dim=1)
+        pad_masks = torch.cat([prefix_pad_masks, value_pad_masks], dim=1)
+        att_masks = torch.cat([prefix_att_masks, value_att_masks], dim=1)
+        att_2d_masks = make_att_2d_masks(pad_masks, att_masks)
+        position_ids = torch.cumsum(pad_masks, dim=1) - 1
+        att_2d_masks_4d = self._prepare_attention_masks_4d(att_2d_masks)
+
+        if (
+            self.paligemma_backbone.paligemma.language_model.layers[0].self_attn.q_proj.weight.dtype
+            == torch.bfloat16
+        ):
+            embs = embs.to(dtype=torch.bfloat16)
+
+        def forward_func(embs, att_2d_masks_4d, position_ids):
+            return self.paligemma_backbone.forward(
+                attention_mask=att_2d_masks_4d,
+                position_ids=position_ids,
+                inputs_embeds=embs,
+            )
+
+        hidden_states = self._apply_checkpoint(forward_func, embs, att_2d_masks_4d, position_ids)
+        value_hidden = hidden_states[:, -self.config.value_dim :].to(dtype=torch.float32)
+        predictions = self.value_head(value_hidden).squeeze(-1)
+        return F.mse_loss(predictions, target_values, reduction="none")
+
+
 class PI05Policy(PreTrainedPolicy):
     """PI05 Policy for LeRobot."""
 
@@ -913,7 +1163,10 @@ class PI05Policy(PreTrainedPolicy):
 
         # Initialize the core PI05 model
         self.init_rtc_processor()
-        self.model = PI05Pytorch(config, rtc_processor=self.rtc_processor)
+        if config.use_value_model:
+            self.model = PI05ValuePytorch(config)
+        else:
+            self.model = PI05Pytorch(config, rtc_processor=self.rtc_processor)
 
         # Enable gradient checkpointing if requested
         if config.gradient_checkpointing:
@@ -965,7 +1218,10 @@ class PI05Policy(PreTrainedPolicy):
 
         with no_init_weights():
             model = cls(config, **kwargs)
-        model.model.paligemma_with_expert.paligemma.tie_weights()
+        if config.use_value_model:
+            model.model.paligemma_backbone.paligemma.tie_weights()
+        else:
+            model.model.paligemma_with_expert.paligemma.tie_weights()
 
         # Try to load the pytorch_model.bin or model.safetensors file
         print(f"Loading model from: {pretrained_name_or_path}")
@@ -992,6 +1248,9 @@ class PI05Policy(PreTrainedPolicy):
         remap_count = 0
 
         for key, value in fixed_state_dict.items():
+            if config.use_value_model and key.startswith("paligemma_with_expert.paligemma."):
+                key = key.replace("paligemma_with_expert.paligemma.", "paligemma_backbone.paligemma.", 1)
+
             if not key.startswith("model."):
                 new_key = f"model.{key}"
                 remapped_state_dict[new_key] = value
@@ -1004,11 +1263,37 @@ class PI05Policy(PreTrainedPolicy):
         if remap_count > 0:
             print(f"Remapped {remap_count} state dict keys")
 
-        # Load the remapped state dict into the model
         missing_keys, unexpected_keys = model.load_state_dict(remapped_state_dict, strict=False)
 
-        if missing_keys != ['model.paligemma_with_expert.paligemma.model.language_model.embed_tokens.weight'] or unexpected_keys:
-            raise RuntimeError(f"Unexpected missing or unexpected keys: missing={missing_keys}, unexpected={unexpected_keys}")
+        if config.use_value_model:
+            allowed_missing_prefixes = (
+                "model.value_tokens",
+                "model.value_head.",
+                "model.paligemma_backbone.paligemma.model.language_model.embed_tokens.weight",
+            )
+            allowed_unexpected_prefixes = (
+                "model.paligemma_with_expert.gemma_expert.",
+                "model.action_in_proj.",
+                "model.action_out_proj.",
+                "model.time_mlp_in.",
+                "model.time_mlp_out.",
+            )
+            bad_missing = [key for key in missing_keys if not key.startswith(allowed_missing_prefixes)]
+            bad_unexpected = [
+                key for key in unexpected_keys if not key.startswith(allowed_unexpected_prefixes)
+            ]
+        else:
+            bad_missing = [
+                key
+                for key in missing_keys
+                if key != "model.paligemma_with_expert.paligemma.model.language_model.embed_tokens.weight"
+            ]
+            bad_unexpected = unexpected_keys
+
+        if bad_missing or bad_unexpected:
+            raise RuntimeError(
+                f"Unexpected missing or unexpected keys: missing={bad_missing}, unexpected={bad_unexpected}"
+            )
         print("All keys loaded successfully!")
 
         return model
@@ -1031,18 +1316,22 @@ class PI05Policy(PreTrainedPolicy):
                 key,
             ):
                 # Check if the model actually has adaRMS enabled for the expert
-                expert_uses_adarms = getattr(
-                    self.model.paligemma_with_expert.gemma_expert.config, "use_adarms", False
-                )
+                expert_uses_adarms = False
+                if not self.config.use_value_model:
+                    expert_uses_adarms = getattr(
+                        self.model.paligemma_with_expert.gemma_expert.config, "use_adarms", False
+                    )
                 if expert_uses_adarms:
                     logging.warning(f"Skipping layer norm key (adaRMS mismatch): {key}")
                     continue
 
             if re.match(r"paligemma_with_expert\.gemma_expert\.model\.norm\.weight", key):
                 # Check if the model actually has adaRMS enabled for the expert
-                expert_uses_adarms = getattr(
-                    self.model.paligemma_with_expert.gemma_expert.config, "use_adarms", False
-                )
+                expert_uses_adarms = False
+                if not self.config.use_value_model:
+                    expert_uses_adarms = getattr(
+                        self.model.paligemma_with_expert.gemma_expert.config, "use_adarms", False
+                    )
                 if expert_uses_adarms:
                     logging.warning(f"Skipping norm key (adaRMS mismatch): {key}")
                     continue
@@ -1080,6 +1369,9 @@ class PI05Policy(PreTrainedPolicy):
     def init_rtc_processor(self):
         """Initialize RTC processor if RTC is enabled in config."""
         self.rtc_processor = None
+
+        if self.config.use_value_model:
+            return
 
         # Create processor if config provided
         # If RTC is not enabled - we can still track the denoising data
@@ -1167,6 +1459,8 @@ class PI05Policy(PreTrainedPolicy):
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor]) -> Tensor:
         """Select a single action given environment observations."""
+        if self.config.use_value_model:
+            raise NotImplementedError("The PI05 value model does not support action selection.")
         assert not self._rtc_enabled(), (
             "RTC is not supported for select_action, use it with predict_action_chunk"
         )
@@ -1184,6 +1478,8 @@ class PI05Policy(PreTrainedPolicy):
     @torch.no_grad()
     def predict_action_chunk(self, batch: dict[str, Tensor], **kwargs: Unpack[ActionSelectKwargs]) -> Tensor:
         """Predict a chunk of actions given environment observations."""
+        if self.config.use_value_model:
+            raise NotImplementedError("The PI05 value model does not support action chunk prediction.")
         self.eval()
 
         # Prepare inputs
@@ -1212,6 +1508,29 @@ class PI05Policy(PreTrainedPolicy):
         images, img_masks = self._preprocess_images(batch)
         tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
 
+        if self.config.use_value_model:
+            values = batch["value"].to(device=tokens.device, dtype=torch.float32)
+            if values.ndim == 1:
+                values = values.unsqueeze(-1)
+            if values.shape[-1] != self.config.value_dim:
+                raise ValueError(
+                    f"Expected batch['value'] to have last dimension {self.config.value_dim}, got {tuple(values.shape)}"
+                )
+
+            losses = self.model.forward(images, img_masks, tokens, masks, values)
+            loss_dict = {
+                "loss_per_dim": losses.mean(dim=0).detach().cpu().numpy().tolist(),
+            }
+
+            if reduction == "none":
+                per_sample_loss = losses.mean(dim=1)
+                loss_dict["loss"] = per_sample_loss.mean().item()
+                return per_sample_loss, loss_dict
+
+            loss = losses.mean()
+            loss_dict["loss"] = loss.item()
+            return loss, loss_dict
+
         actions = self.prepare_action(batch)
 
         # Compute loss (no separate state needed for PI05)
@@ -1238,6 +1557,12 @@ class PI05Policy(PreTrainedPolicy):
 
     def _get_default_peft_targets(self) -> dict[str, any]:
         """Return default PEFT target modules for PI0.5 fine-tuning."""
+        if self.config.use_value_model:
+            target_modules = r"(.*\.paligemma_backbone\..*\.self_attn\.(q|v)_proj|model\.value_head\..*)"
+            return {
+                "target_modules": target_modules,
+                "modules_to_save": [],
+            }
         common_projections = (
             "state_proj|action_in_proj|action_out_proj|action_time_mlp_in|action_time_mlp_out"
         )
