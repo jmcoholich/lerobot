@@ -6,12 +6,12 @@
 #SBATCH -c 12
 #SBATCH --mem=32G
 #SBATCH --qos=long
-
+#SBATCH -x nestor
 JOB_NAME=$1
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=100
 LR=5e-5
-DATASET='eve_blocks_6x_abs_joint'
+DATASET='thread3'
 
 echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
@@ -26,7 +26,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --output_dir=$OUTDIR \
     --job_name=$JOB_NAME \
     --policy.repo_id=your_repo_id \
-    --policy.pretrained_path=jcoholich/pi05_droid_converted \
+    --policy.pretrained_path=lerobot/pi05_base \
     --policy.compile_model=false \
     --policy.gradient_checkpointing=true \
     --wandb.enable=true \
@@ -40,7 +40,8 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.device=cuda \
     --batch_size=32 \
     --log_freq=5 \
-    --save_freq=500 \
+    --save_freq=1000 \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
 
 
+rsync -ahP $OUTDIR jeremiah@143.215.128.151:/data3/lerobot_checkpoints/
