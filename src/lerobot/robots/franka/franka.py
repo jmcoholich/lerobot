@@ -20,7 +20,7 @@ np.set_printoptions(
 
 # Debug flag allows inference without connecting to the robot
 DEBUG = False
-TORQUE_OBS = False
+TORQUE_OBS = True
 class FrankaRobot(Robot):
     config_class = FrankaConfig
     name = "franka"

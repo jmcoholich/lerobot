@@ -7,8 +7,8 @@ from tqdm import tqdm
 UNPLUG = False
 
 # Configuration
-REPO_ID = "lerobot/unplug3" if UNPLUG else "lerobot/plug3"
-DATASET_NAME = "unplug3" if UNPLUG else "plug3"
+REPO_ID = "lerobot/unplug3" if UNPLUG else "lerobot/plug3_w_rollouts"
+DATASET_NAME = "unplug3" if UNPLUG else "plug3_w_rollouts"
 ORIG_DATASET_PATH = Path("/home/jeremiah/openteach/extracted_data/plug3/h5_files")
 FPS = 20
 ROOT_DIR = Path(f"/data3/lerobot_data/{DATASET_NAME}")  # Where the dataset will be created locally
@@ -40,7 +40,12 @@ FEATURES = {
         "dtype": "video",
         "shape": (360, 640, 3), # (H, W, C)
         "names": ["height", "width", "channels"],
-    }
+    },
+    "fname": {
+        "dtype": "string",
+        "shape": (1,),
+        "names": None,
+    },
 }
 
 def main():
@@ -59,6 +64,11 @@ def main():
     else:
         h5_files = sorted(f for f in ORIG_DATASET_PATH.glob("*.h5") if not "unplug" in f.name)
     print(f"Found {len(h5_files)} episodes in {ORIG_DATASET_PATH}")
+    # print all file names
+    print("Files:")
+    for f in h5_files:
+        print(f" - {f.name}")
+
 
     for h5_path in tqdm(h5_files):
         expected_episode_index = dataset.num_episodes
@@ -87,6 +97,7 @@ def main():
                     "observation.images.camera_wrist": camera_wrist_imgs[i],
                     "observation.images.camera_side": camera_side_imgs[i],
                     "task": get_task_instructions(h5_path.name),
+                    "fname": h5_path.name,
                 }
 
                 # 4. Add frame to buffer
