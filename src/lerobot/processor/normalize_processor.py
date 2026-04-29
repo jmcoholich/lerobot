@@ -93,6 +93,8 @@ class _NormalizationMixin:
     dtype: torch.dtype | None = None
     eps: float = 1e-8
     normalize_observation_keys: set[str] | None = None
+    normalize_complementary_data_keys: set[str] | None = None
+    complementary_data_norm_mode: NormalizationMode = NormalizationMode.QUANTILES
 
     _tensor_stats: dict[str, dict[str, Tensor]] = field(default_factory=dict, init=False, repr=False)
     _stats_explicitly_provided: bool = field(default=False, init=False, repr=False)
@@ -125,6 +127,12 @@ class _NormalizationMixin:
             for ft_type_str, norm_mode_str in self.norm_map.items():
                 reconstructed[FeatureType(ft_type_str)] = NormalizationMode(norm_mode_str)
             self.norm_map = reconstructed
+        if isinstance(self.normalize_observation_keys, list):
+            self.normalize_observation_keys = set(self.normalize_observation_keys)
+        if isinstance(self.normalize_complementary_data_keys, list):
+            self.normalize_complementary_data_keys = set(self.normalize_complementary_data_keys)
+        if isinstance(self.complementary_data_norm_mode, str):
+            self.complementary_data_norm_mode = NormalizationMode(self.complementary_data_norm_mode)
 
         # Convert stats to tensors and move to the target device once during initialization.
         self.stats = self.stats or {}
@@ -237,6 +245,9 @@ class _NormalizationMixin:
         }
         if self.normalize_observation_keys is not None:
             config["normalize_observation_keys"] = sorted(self.normalize_observation_keys)
+        if self.normalize_complementary_data_keys is not None:
+            config["normalize_complementary_data_keys"] = sorted(self.normalize_complementary_data_keys)
+            config["complementary_data_norm_mode"] = self.complementary_data_norm_mode.value
         return config
 
     def _normalize_observation(self, observation: RobotObservation, inverse: bool) -> dict[str, Tensor]:
@@ -275,8 +286,40 @@ class _NormalizationMixin:
         processed_action = self._apply_transform(action, ACTION, FeatureType.ACTION, inverse=inverse)
         return processed_action
 
+    def _normalize_complementary_data(
+        self, complementary_data: dict[str, Any], inverse: bool
+    ) -> dict[str, Any]:
+        """
+        Applies (un)normalization to configured complementary-data tensors.
+
+        Complementary data is not part of the standard observation/action feature map, but
+        training targets like returns can still be normalized with dataset stats.
+        """
+        if self.normalize_complementary_data_keys is None:
+            return complementary_data
+
+        new_complementary_data = dict(complementary_data)
+        for key in self.normalize_complementary_data_keys:
+            if key not in new_complementary_data:
+                continue
+            tensor = torch.as_tensor(new_complementary_data[key])
+            new_complementary_data[key] = self._apply_transform(
+                tensor,
+                key,
+                FeatureType.ACTION,
+                inverse=inverse,
+                norm_mode=self.complementary_data_norm_mode,
+            )
+        return new_complementary_data
+
     def _apply_transform(
-        self, tensor: Tensor, key: str, feature_type: FeatureType, *, inverse: bool = False
+        self,
+        tensor: Tensor,
+        key: str,
+        feature_type: FeatureType,
+        *,
+        inverse: bool = False,
+        norm_mode: NormalizationMode | None = None,
     ) -> Tensor:
         """
         Core logic to apply a normalization or unnormalization transformation to a tensor.
@@ -302,7 +345,7 @@ class _NormalizationMixin:
         Raises:
             ValueError: If an unsupported normalization mode is encountered.
         """
-        norm_mode = self.norm_map.get(feature_type, NormalizationMode.IDENTITY)
+        norm_mode = norm_mode or self.norm_map.get(feature_type, NormalizationMode.IDENTITY)
         if norm_mode == NormalizationMode.IDENTITY or key not in self._tensor_stats:
             return tensor
 
@@ -450,6 +493,13 @@ class NormalizerProcessorStep(_NormalizationMixin, ProcessorStep):
         if observation is not None:
             new_transition[TransitionKey.OBSERVATION] = self._normalize_observation(
                 observation, inverse=False
+            )
+
+        # Handle configured complementary-data normalization, e.g. return targets.
+        complementary_data = new_transition.get(TransitionKey.COMPLEMENTARY_DATA)
+        if complementary_data is not None:
+            new_transition[TransitionKey.COMPLEMENTARY_DATA] = self._normalize_complementary_data(
+                complementary_data, inverse=False
             )
 
         # Handle action normalization.
