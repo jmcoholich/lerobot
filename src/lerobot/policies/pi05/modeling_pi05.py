@@ -1128,6 +1128,7 @@ class PI05ValuePytorch(nn.Module):
             == torch.bfloat16
         ):
             embs = embs.to(dtype=torch.bfloat16)
+        att_2d_masks_4d = att_2d_masks_4d.to(dtype=embs.dtype)
 
         def forward_func(embs, att_2d_masks_4d, position_ids):
             return self.paligemma_backbone.forward(

@@ -21,6 +21,8 @@ echo "Output dir: $OUTDIR"
 source /coc/testnvme/$USER/.bashrc
 conda activate lerobot
 
+export PYTHONPATH="$PWD/src:${PYTHONPATH}"
+
 python src/lerobot/scripts/lerobot_train.py\
     --dataset.repo_id=$DATASET \
     --dataset.root="$DATA_ROOT/$DATASET" \
