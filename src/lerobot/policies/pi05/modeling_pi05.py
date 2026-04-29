@@ -1013,8 +1013,8 @@ class PI05ValuePytorch(nn.Module):
         )
         self.value_tokens = nn.Parameter(torch.randn(config.value_dim, paligemma_config.width) * 0.02)
         self.value_head = nn.Sequential(
-            nn.Linear(paligemma_config.width, paligemma_config.width),
-            nn.SiLU(),
+            # nn.Linear(paligemma_config.width, paligemma_config.width),
+            # nn.SiLU(),
             nn.Linear(paligemma_config.width, 1),
         )
 
@@ -1509,7 +1509,7 @@ class PI05Policy(PreTrainedPolicy):
         tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
 
         if self.config.use_value_model:
-            values = batch["value"].to(device=tokens.device, dtype=torch.float32)
+            values = batch["returns_gamma_0.995"].to(device=tokens.device, dtype=torch.float32)
             if values.ndim == 1:
                 values = values.unsqueeze(-1)
             if values.shape[-1] != self.config.value_dim:

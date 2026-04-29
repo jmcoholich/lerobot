@@ -1,4 +1,5 @@
 import sys
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -64,6 +65,17 @@ fname_is_success = {
 GAMMAS = [0.999, 0.995, 0.99, 0.95, 0.9]
 
 
+def update_info_features(path, feature_names):
+    info_path = Path(path).parents[2] / "meta" / "info.json"
+    with info_path.open("r") as f:
+        info = json.load(f)
+    for name in feature_names:
+        info["features"][name] = {"dtype": "float32", "shape": [1], "names": None}
+    with info_path.open("w") as f:
+        json.dump(info, f, indent=4)
+        f.write("\n")
+
+
 def inspect_parquet(path, num_rows=5):
     print(f"\n=== Loading: {path} ===\n")
 
@@ -90,6 +102,7 @@ def inspect_parquet(path, num_rows=5):
         df[f"returns_gamma_{gamma}"] = returns[:, gamma_idx]
 
     df.to_parquet(path, index=False)
+    update_info_features(path, ["reward", *[f"returns_gamma_{gamma}" for gamma in GAMMAS]])
 
     print("=== SHAPE ===")
     print(df.shape)
