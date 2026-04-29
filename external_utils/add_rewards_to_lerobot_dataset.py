@@ -65,8 +65,66 @@ fname_is_success = {
 GAMMAS = [0.999, 0.995, 0.99, 0.95, 0.9]
 
 
+def _dataset_root_from_path(path):
+    path = Path(path)
+    if path.suffix == ".parquet":
+        return path.parents[2]
+    return path
+
+
+def _stats_json_value(value):
+    if np.isnan(value):
+        return float("nan")
+    return float(value)
+
+
+def _compute_scalar_column_stats(values):
+    values = np.asarray(values, dtype=np.float32)
+    finite_values = values[np.isfinite(values)]
+    if finite_values.size == 0:
+        raise ValueError("Cannot compute stats for a column with no finite values")
+
+    quantiles = np.quantile(finite_values, [0.01, 0.10, 0.50, 0.90, 0.99])
+    return {
+        "min": [_stats_json_value(np.min(finite_values))],
+        "max": [_stats_json_value(np.max(finite_values))],
+        "mean": [_stats_json_value(np.mean(finite_values))],
+        "std": [_stats_json_value(np.std(finite_values))],
+        "count": [int(finite_values.size)],
+        "q01": [_stats_json_value(quantiles[0])],
+        "q10": [_stats_json_value(quantiles[1])],
+        "q50": [_stats_json_value(quantiles[2])],
+        "q90": [_stats_json_value(quantiles[3])],
+        "q99": [_stats_json_value(quantiles[4])],
+    }
+
+
+def update_reward_return_stats(path, feature_names):
+    dataset_root = _dataset_root_from_path(path)
+    stats_path = dataset_root / "meta" / "stats.json"
+    data_paths = sorted((dataset_root / "data").glob("*/*.parquet"))
+    if not data_paths:
+        raise FileNotFoundError(f"No parquet files found under {dataset_root / 'data'}")
+
+    with stats_path.open("r") as f:
+        stats = json.load(f)
+
+    values_by_feature = {name: [] for name in feature_names}
+    for data_path in data_paths:
+        df = pd.read_parquet(data_path, columns=feature_names)
+        for name in feature_names:
+            values_by_feature[name].append(df[name].to_numpy(dtype=np.float32, copy=False))
+
+    for name, chunks in values_by_feature.items():
+        stats[name] = _compute_scalar_column_stats(np.concatenate(chunks))
+
+    with stats_path.open("w") as f:
+        json.dump(stats, f, indent=4, allow_nan=True)
+        f.write("\n")
+
+
 def update_info_features(path, feature_names):
-    info_path = Path(path).parents[2] / "meta" / "info.json"
+    info_path = _dataset_root_from_path(path) / "meta" / "info.json"
     with info_path.open("r") as f:
         info = json.load(f)
     for name in feature_names:
@@ -102,7 +160,9 @@ def inspect_parquet(path, num_rows=5):
         df[f"returns_gamma_{gamma}"] = returns[:, gamma_idx]
 
     df.to_parquet(path, index=False)
-    update_info_features(path, ["reward", *[f"returns_gamma_{gamma}" for gamma in GAMMAS]])
+    reward_return_features = ["reward", *[f"returns_gamma_{gamma}" for gamma in GAMMAS]]
+    update_info_features(path, reward_return_features)
+    update_reward_return_stats(path, reward_return_features)
 
     print("=== SHAPE ===")
     print(df.shape)
@@ -165,5 +225,10 @@ def inspect_parquet(path, num_rows=5):
 
 
 if __name__ == "__main__":
-    path = "/data3/lerobot_data/plug3_w_rollouts/data/chunk-000/file-000.parquet"
+    # data_dir = Path("/data3/lerobot_data/plug3_w_rollouts/data")  # ripl-d3
+    data_dir = Path("/coc/testnvme/jcoholich3/lerobot_data/plug3_w_rollouts/data")  # skynet
+    chunk_dirs = [entry for entry in data_dir.iterdir() if entry.is_dir()]
+    if len(chunk_dirs) != 1:
+        raise ValueError(f"Expected exactly one chunk dir under {data_dir}, found {len(chunk_dirs)}")
+    path = chunk_dirs[0] / "file-000.parquet"
     inspect_parquet(path)
