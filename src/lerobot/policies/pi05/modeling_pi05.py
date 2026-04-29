@@ -617,13 +617,77 @@ class PaliGemmaBackboneModel(nn.Module):
         position_ids: torch.LongTensor | None = None,
         inputs_embeds: torch.FloatTensor | None = None,
     ):
-        output = self.paligemma.language_model.forward(
-            inputs_embeds=inputs_embeds,
+        language_model = self.paligemma.language_model
+
+        if inputs_embeds is None:
+            raise ValueError("inputs_embeds must be provided")
+
+        if position_ids is None:
+            cache_position = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device)
+            position_ids = cache_position.unsqueeze(0)
+        else:
+            cache_position = torch.arange(inputs_embeds.shape[1], device=inputs_embeds.device)
+
+        causal_mask = modeling_gemma.create_causal_mask(
+            config=language_model.config,
+            input_embeds=inputs_embeds,
             attention_mask=attention_mask,
+            cache_position=cache_position,
+            past_key_values=None,
             position_ids=position_ids,
-            use_cache=False,
         )
-        return output.last_hidden_state
+
+        hidden_states = inputs_embeds
+        if (
+            len(language_model.layers) > 0
+            and language_model.layers[0].self_attn.q_proj.weight.dtype == torch.bfloat16
+        ):
+            hidden_states = hidden_states.to(torch.bfloat16)
+
+        position_embeddings = language_model.rotary_emb(hidden_states, position_ids)
+        use_gradient_checkpointing = (
+            getattr(language_model, "gradient_checkpointing", False) and self.training
+        )
+
+        # The patched GemmaModel.forward used by PI05 does not checkpoint layers itself.
+        for decoder_layer in language_model.layers[: language_model.config.num_hidden_layers]:
+
+            def layer_forward(hidden_states, decoder_layer=decoder_layer):
+                return decoder_layer(
+                    hidden_states,
+                    attention_mask=causal_mask,
+                    position_ids=position_ids,
+                    past_key_value=None,
+                    output_attentions=False,
+                    use_cache=False,
+                    cache_position=cache_position,
+                    position_embeddings=position_embeddings,
+                    adarms_cond=None,
+                )[0]
+
+            if use_gradient_checkpointing:
+                hidden_states = torch.utils.checkpoint.checkpoint(
+                    layer_forward,
+                    hidden_states,
+                    use_reentrant=False,
+                    preserve_rng_state=False,
+                )
+            else:
+                hidden_states = layer_forward(hidden_states)
+
+        if use_gradient_checkpointing:
+
+            def norm_forward(hidden_states):
+                return language_model.norm(hidden_states, None)[0]
+
+            return torch.utils.checkpoint.checkpoint(
+                norm_forward,
+                hidden_states,
+                use_reentrant=False,
+                preserve_rng_state=False,
+            )
+
+        return language_model.norm(hidden_states, None)[0]
 
 
 class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
@@ -1017,6 +1081,8 @@ class PI05ValuePytorch(nn.Module):
             # nn.SiLU(),
             nn.Linear(paligemma_config.width, 1),
         )
+        nn.init.zeros_(self.value_head[-1].weight)
+        nn.init.zeros_(self.value_head[-1].bias)
 
         self.gradient_checkpointing_enabled = False
 
