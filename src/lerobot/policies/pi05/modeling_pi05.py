@@ -1510,12 +1510,18 @@ class PI05Policy(PreTrainedPolicy):
         tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
 
         if self.config.use_value_model:
-            values = batch["returns_gamma_0.995"].to(device=tokens.device, dtype=torch.float32)
+            if self.config.value_key not in batch:
+                raise KeyError(
+                    f"Expected value target key '{self.config.value_key}' in batch, "
+                    f"but available keys are: {sorted(batch.keys())}"
+                )
+            values = batch[self.config.value_key].to(device=tokens.device, dtype=torch.float32)
             if values.ndim == 1:
                 values = values.unsqueeze(-1)
             if values.shape[-1] != self.config.value_dim:
                 raise ValueError(
-                    f"Expected batch['value'] to have last dimension {self.config.value_dim}, got {tuple(values.shape)}"
+                    f"Expected batch['{self.config.value_key}'] to have last dimension "
+                    f"{self.config.value_dim}, got {tuple(values.shape)}"
                 )
 
             losses = self.model.forward(images, img_masks, tokens, masks, values)

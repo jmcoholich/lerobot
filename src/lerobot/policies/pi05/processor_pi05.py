@@ -139,6 +139,7 @@ def make_pi05_pre_post_processors(
             features={**config.input_features, **config.output_features},
             norm_map=config.normalization_mapping,
             stats=dataset_stats,
+            normalize_complementary_data_keys={config.value_key} if config.use_value_model else None,
         ),
         Pi05PrepareStateTokenizerProcessorStep(max_state_dim=config.max_state_dim),
         TokenizerProcessorStep(
@@ -169,4 +170,3 @@ def make_pi05_pre_post_processors(
             to_output=transition_to_policy_action,
         ),
     )
-

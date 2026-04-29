@@ -266,6 +266,10 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
                 "norm_map": policy.config.normalization_mapping,
             },
         }
+        if cfg.policy.type == "pi05" and getattr(cfg.policy, "use_value_model", False):
+            processor_kwargs["preprocessor_overrides"]["normalizer_processor"][
+                "normalize_complementary_data_keys"
+            ] = [cfg.policy.value_key]
         processor_kwargs["preprocessor_overrides"]["rename_observations_processor"] = {
             "rename_map": cfg.rename_map
         }

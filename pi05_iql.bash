@@ -8,6 +8,7 @@
 #SBATCH --qos=long
 
 JOB_NAME=$1
+VALUE_KEY=${2:-returns_gamma_0.995}
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=100
 LR=5e-5
@@ -17,6 +18,7 @@ DATA_ROOT=/coc/testnvme/jcoholich3/lerobot_data
 
 echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
+echo "Value key: $VALUE_KEY"
 
 source /coc/testnvme/$USER/.bashrc
 conda activate lerobot
@@ -38,6 +40,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.freeze_vision_encoder=false \
     --policy.train_expert_only=false \
     --policy.use_value_model=true \
+    --policy.value_key="$VALUE_KEY" \
     --policy.value_dim=1 \
     --steps=6000 \
     --policy.optimizer_lr=$LR \
