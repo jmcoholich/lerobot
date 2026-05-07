@@ -2,7 +2,6 @@ rm -rf /home/jeremiah/.cache/huggingface/lerobot/dummy
 
 RECORD_NAME="${1:-last_recording}"
 
-export CUDA_VISIBLE_DEVICES=1
 export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH}"
 
 python src/lerobot/scripts/lerobot_record.py \
@@ -13,11 +12,14 @@ python src/lerobot/scripts/lerobot_record.py \
   --dataset.push_to_hub=false \
   --dataset.root='/home/jeremiah/.cache/huggingface/lerobot/dummy' \
   --dataset.repo_id=dummy/eval_dummy \
-  --dataset.single_task="Plug the charger into the power strip" \
   --dataset.episode_time_s=60000 \
   --dataset.num_episodes=1 \
   --policy.dtype=bfloat16 \
-  --policy.path=/home/jeremiah/lerobot/outputs/plug3/checkpoints/003000/pretrained_model
-  # --policy.n_action_steps=20
-  # --dataset.single_task="Plug the charger into the power strip" \
+  --policy.n_action_steps=50 \
+  --dataset.single_task="Unplug the charger" \
+  --policy.path=/home/jeremiah/lerobot/outputs/unplug3/checkpoints/003000/pretrained_model
+  # --dataset.single_task="Unscrew the nut and set it on the table" \
+  # --policy.path=/home/jeremiah/lerobot/outputs/unthread4/checkpoints/006000/pretrained_model
+  # --policy.path=/home/jeremiah/lerobot/outputs/unthread4/checkpoints/004000/pretrained_model
+  # --dataset.single_task="Unscrew the nut and set it on the table" \
   # --policy.type=pi05 \

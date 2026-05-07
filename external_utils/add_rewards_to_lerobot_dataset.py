@@ -225,8 +225,8 @@ def inspect_parquet(path, num_rows=5):
 
 
 if __name__ == "__main__":
-    # data_dir = Path("/data3/lerobot_data/plug3_w_rollouts/data")  # ripl-d3
-    data_dir = Path("/coc/testnvme/jcoholich3/lerobot_data/plug3_w_rollouts/data")  # skynet
+    data_dir = Path("/data3/lerobot_data/plug3_w_rollouts/data")  # ripl-d3
+    #data_dir = Path("/coc/testnvme/jcoholich3/lerobot_data/plug3_w_rollouts/data")  # skynet
     chunk_dirs = [entry for entry in data_dir.iterdir() if entry.is_dir()]
     if len(chunk_dirs) != 1:
         raise ValueError(f"Expected exactly one chunk dir under {data_dir}, found {len(chunk_dirs)}")
