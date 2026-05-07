@@ -151,11 +151,12 @@ class FrankaRobot(Robot):
         self.operator.arm_control(None, None, playback_actions=(abs_joint_action, action["gripper"]))
 
     def send_abs_cartesian_action(self, action) -> None:
+        self.operator.absolute_eef_pose_to_delta = "absolute_eef_pose_to_delta"
         abs_eef_pose = [action["x"], action["y"], action["z"], action["quat_x"], action["quat_y"], action["quat_z"], action["quat_w"]]
         if self.debug:
             print(abs_eef_pose, action["gripper"])
         else:
-            self.operator.arm_control(abs_eef_pose, action["gripper"])
+            self.operator.arm_control(target_pose=abs_eef_pose, gripper_cmd=action["gripper"])
 
     @property
     def is_connected(self) -> bool:
