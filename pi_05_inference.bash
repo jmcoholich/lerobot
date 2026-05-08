@@ -1,5 +1,7 @@
 rm -rf /home/jeremiah/.cache/huggingface/lerobot/dummy
 
+export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH}"
+
 python src/lerobot/scripts/lerobot_record.py \
   --robot.type=franka \
   --robot.id=franka \

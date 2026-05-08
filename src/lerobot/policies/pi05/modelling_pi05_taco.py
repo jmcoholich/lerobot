@@ -187,7 +187,8 @@ def save_VLM_io(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    image = pil_img.convert("RGB")
+    image = Image.new("RGB", (pil_img.width + 280, pil_img.height), (0, 0, 0))
+    image.paste(pil_img.convert("RGB"), (140, 0))
     font = ImageFont.load_default()
     margin = 12
     line_spacing = 4
@@ -1876,7 +1877,8 @@ def visualize_trajectories_on_camera(
         # chunk = 2.0 * (chunk - q01) / denom - 1.0
         action = (action + 1.0) / 2.0 * denom + q01
     outputs = {}
-    for img_key in ['observation.images.camera_front', 'observation.images.camera_wrist']:
+    # for img_key in ['observation.images.camera_front', 'observation.images.camera_wrist']:
+    for img_key in ['observation.images.camera_front']:
         image_tensor = batch[img_key]
         # save the image tensor as an image file
         assert image_tensor.shape[0] == 1 # batch size 1
@@ -1900,11 +1902,13 @@ def visualize_trajectories_on_camera(
             draw_lines(points_2D, image_np, depths > 0, traj_color, i==0, line_thickness=line_thickness, draw_arrow_head=draw_arrow_head)
         # Add legend with color names
         legend_y = 30
+        x_offset = 140
         for i, color in enumerate(TRAJ_COLORS[:action.shape[0]]):
-            cv2.circle(image_np, (30, legend_y), 6, color, -1)
-            cv2.putText(image_np, TRAJ_COLOR_NAMES[i], (45, legend_y + 5),
+            cv2.circle(image_np, (30 + x_offset, legend_y), 6, color, -1)
+            cv2.putText(image_np, TRAJ_COLOR_NAMES[i], (45 + x_offset, legend_y + 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
             legend_y += 25
+        image_np = image_np[:, 140:500]
         outputs[img_key] = image_np
         if save_imgs:
             img_name = f"{name}_{img_key.split('.')[-1]}.png"
@@ -1913,7 +1917,7 @@ def visualize_trajectories_on_camera(
                 img_name = os.path.join(save_dir, img_name)
             cv2.imwrite(img_name, image_np)
 
-    return outputs['observation.images.camera_front'], outputs['observation.images.camera_wrist']
+    return outputs['observation.images.camera_front'], None
 
 
 def draw_lines(points_2d, img, valid_mask, traj_color, first_traj, line_thickness=1, draw_arrow_head=False):
