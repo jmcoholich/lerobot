@@ -40,7 +40,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.device=cuda \
     --batch_size=32 \
     --log_freq=5 \
-    --save_freq=1000 \
+    --save_freq=1500 \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
 
 
