@@ -60,6 +60,7 @@ def main():
         features=FEATURES,
         root=ROOT_DIR,
         use_videos=True, # Encode images to MP4
+        image_writer_threads=12,
     )
 
     # 2. Iterate over all HDF5 files in the directory
