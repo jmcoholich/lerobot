@@ -1,21 +1,10 @@
-<SITUATION>
-- The camera image is overlaid with visualizations of potential future actions.
-- The image provided shows <NUM_TRAJECTORIES/> potential future trajectories for the gripper, colored <TRAJECTORY_COLOR_LIST/>. These trajectories represent different options the robot's base policy is considering.
+The image provided shows <NUM_TRAJECTORIES/> potential future trajectories for the robotic gripper, colored <TRAJECTORY_COLOR_LIST/>.
 
 The task is to:  <TASK_DESCRIPTION/>
 
-</SITUATION>
+Determine which is the best action to achieve the current task. You must conclude your response with a single JSON object and nothing else. Do not use markdown formatting (like ```json) or add any text before or after the JSON block. The JSON object must contain two keys: "reasoning" and "chosen_trajectory".
 
-<TRAJECTORY_CHOICES>
-
-Analyze the scene and the proposed trajectories to determine which is the best path for the robot to follow to achieve its current task.
-
-<OUTPUT_FORMAT>
-You must conclude your response with a single, well-formed JSON object and nothing else. Do not use markdown formatting (like ```json) or add any text before or after the JSON block.
-
-The JSON object must contain two keys: "reasoning" and "chosen_trajectory".
-
-    "reasoning": A string containing your detailed analysis of the scene and each trajectory, incorporating fine-grained visual details to justify your decision. Explain why the chosen trajectory is best.
+    "reasoning": Explain why the chosen trajectory is best.
 
     "chosen_trajectory": A string containing one of the <NUM_TRAJECTORIES/> valid choices: <TRAJECTORY_COLOR_OPTIONS/>.
 
@@ -24,4 +13,3 @@ Example of a perfect response format:
   "reasoning": "str",
   "chosen_trajectory": "str"
 }}
-</OUTPUT_FORMAT>

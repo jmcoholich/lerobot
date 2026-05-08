@@ -1,0 +1,3 @@
+The task is to:  <TASK_DESCRIPTION/>.
+
+Choose which trajectory color will solve the task.
