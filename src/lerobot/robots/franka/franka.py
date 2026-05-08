@@ -57,6 +57,7 @@ class FrankaRobot(Robot):
             arm_resolution_port = None,
             teleoperation_reset_port = None,
             record='test_lerobot',
+            control_mode="absolute_eef_pose_to_delta",
             )
         if DELTA_JOINT_ACTIONS or JOINT_ACTIONS:
             with open(os.path.join(CONFIG_ROOT, "joint-pos-controller-impedance.yml"), "r") as f:
@@ -151,7 +152,6 @@ class FrankaRobot(Robot):
         self.operator.arm_control(None, None, playback_actions=(abs_joint_action, action["gripper"]))
 
     def send_abs_cartesian_action(self, action) -> None:
-        self.operator.absolute_eef_pose_to_delta = "absolute_eef_pose_to_delta"
         abs_eef_pose = [action["x"], action["y"], action["z"], action["quat_x"], action["quat_y"], action["quat_z"], action["quat_w"]]
         if self.debug:
             print(abs_eef_pose, action["gripper"])
