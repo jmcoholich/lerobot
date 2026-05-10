@@ -20,8 +20,7 @@ np.set_printoptions(
 
 # Debug flag allows inference without connecting to the robot
 DEBUG = False
-DELTA_JOINT_ACTIONS = False
-JOINT_ACTIONS = False
+TORQUE_OBS = False
 class FrankaRobot(Robot):
     config_class = FrankaConfig
     name = "franka"
@@ -56,13 +55,13 @@ class FrankaRobot(Robot):
             use_filter=False,
             arm_resolution_port = None,
             teleoperation_reset_port = None,
-            record='test_lerobot',
+            record=config.record,
             control_mode="absolute_eef_pose_to_delta",
             )
-        if DELTA_JOINT_ACTIONS or JOINT_ACTIONS:
-            with open(os.path.join(CONFIG_ROOT, "joint-pos-controller-impedance.yml"), "r") as f:
-                joint_controller_cfg = EasyDict(yaml.safe_load(f))
-            self.operator.velocity_controller_cfg = joint_controller_cfg
+        # if DELTA_JOINT_ACTIONS or JOINT_ACTIONS:
+        #     with open(os.path.join(CONFIG_ROOT, "joint-pos-controller-impedance.yml"), "r") as f:
+        #         joint_controller_cfg = EasyDict(yaml.safe_load(f))
+        #     self.operator.velocity_controller_cfg = joint_controller_cfg
         self.cameras = [
             self.front_subscriber,
             self.wrist_subscriber,
@@ -73,6 +72,7 @@ class FrankaRobot(Robot):
             "camera_wrist",
             "camera_front",
         ]
+        self._saved_obs_cmd_history = False
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
@@ -82,32 +82,7 @@ class FrankaRobot(Robot):
 
     @property
     def observation_features(self) -> dict:
-        return {
-             "joint_pos.1": float,
-             "joint_pos.2": float,
-             "joint_pos.3": float,
-             "joint_pos.4": float,
-             "joint_pos.5": float,
-             "joint_pos.6": float,
-             "joint_pos.7": float,
-             "gripper_pos": float,
-            **self._cameras_ft,
-            }
-
-    @property
-    def action_features(self) -> dict:
-        if DELTA_JOINT_ACTIONS:
-            return {
-                "d_joint1": float,
-                "d_joint2": float,
-                "d_joint3": float,
-                "d_joint4": float,
-                "d_joint5": float,
-                "d_joint6": float,
-                "d_joint7": float,
-                "gripper": float,
-            }
-        elif JOINT_ACTIONS:
+        if TORQUE_OBS:
             return {
                 "joint1": float,
                 "joint2": float,
@@ -116,47 +91,74 @@ class FrankaRobot(Robot):
                 "joint5": float,
                 "joint6": float,
                 "joint7": float,
-                "gripper": float,
-            }
+                "gripper_pos": float,
+                "joint1_tau": float,
+                "joint2_tau": float,
+                "joint3_tau": float,
+                "joint4_tau": float,
+                "joint5_tau": float,
+                "joint6_tau": float,
+                "joint7_tau": float,
+                **self._cameras_ft,
+                }
         else:
             return {
-                "x": float,
-                "y": float,
-                "z": float,
-                "quat_x": float,
-                "quat_y": float,
-                "quat_z": float,
-                "quat_w": float,
-                "gripper": float,
-            }
+                "joint1": float,
+                "joint2": float,
+                "joint3": float,
+                "joint4": float,
+                "joint5": float,
+                "joint6": float,
+                "joint7": float,
+                "gripper_pos": float,
+                **self._cameras_ft,
+                }
+
+    @property
+    def action_features(self) -> dict:
+        return {
+            "x": float,
+            "y": float,
+            "z": float,
+            "quat_x": float,
+            "quat_y": float,
+            "quat_z": float,
+            "quat_w": float,
+            "gripper": float,
+        }
 
     def configure(self) -> None:
         pass
 
     def send_action(self, action) -> None:
-        if DELTA_JOINT_ACTIONS:
-            self.send_delta_joint_action(action)
-        elif JOINT_ACTIONS:
-            self.send_joint_action(action)
-        else:
-            self.send_abs_cartesian_action(action)
-
-    def send_delta_joint_action(self, action) -> None:
-        joint_delta_action = [action["d_joint1"], action["d_joint2"], action["d_joint3"], action["d_joint4"], action["d_joint5"], action["d_joint6"], action["d_joint7"]]
-        for i in range(7):
-            joint_delta_action[i] += self.operator.robot_interface.last_q[i]
-        self.operator.arm_control(None, None, playback_actions=(joint_delta_action, action["gripper"]))
-
-    def send_joint_action(self, action) -> None:
-        abs_joint_action = [action["joint1"], action["joint2"], action["joint3"], action["joint4"], action["joint5"], action["joint6"], action["joint7"]]
-        self.operator.arm_control(None, None, playback_actions=(abs_joint_action, action["gripper"]))
-
-    def send_abs_cartesian_action(self, action) -> None:
         abs_eef_pose = [action["x"], action["y"], action["z"], action["quat_x"], action["quat_y"], action["quat_z"], action["quat_w"]]
         if self.debug:
             print(abs_eef_pose, action["gripper"])
         else:
             self.operator.arm_control(target_pose=abs_eef_pose, gripper_cmd=action["gripper"])
+    #     if DELTA_JOINT_ACTIONS:
+    #         self.send_delta_joint_action(action)
+    #     elif JOINT_ACTIONS:
+    #         self.send_joint_action(action)
+    #     else:
+    #         self.send_abs_cartesian_action(action)
+
+    # def send_delta_joint_action(self, action) -> None:
+    #     joint_delta_action = [action["d_joint1"], action["d_joint2"], action["d_joint3"], action["d_joint4"], action["d_joint5"], action["d_joint6"], action["d_joint7"]]
+    #     for i in range(7):
+    #         joint_delta_action[i] += self.operator.robot_interface.last_q[i]
+    #     self.operator.arm_control(None, None, playback_actions=(joint_delta_action, action["gripper"]))
+
+    # def send_joint_action(self, action) -> None:
+    #     abs_joint_action = [action["joint1"], action["joint2"], action["joint3"], action["joint4"], action["joint5"], action["joint6"], action["joint7"]]
+    #     self.operator.arm_control(None, None, playback_actions=(abs_joint_action, action["gripper"]))
+
+    # def send_abs_cartesian_action(self, action) -> None:
+    #     abs_eef_pose = [action["x"], action["y"], action["z"], action["quat_x"], action["quat_y"], action["quat_z"], action["quat_w"]]
+    #     if self.debug:
+    #         print(abs_eef_pose, action["gripper"])
+    #     else:
+    #         self.operator.arm_control(abs_eef_pose, action["gripper"])
 
     @property
     def is_connected(self) -> bool:
@@ -169,7 +171,14 @@ class FrankaRobot(Robot):
         pass
 
     def disconnect(self) -> None:
-        pass
+        if self._saved_obs_cmd_history:
+            print("#" * 10 + "Franka obs/cmd history already saved; skipping.")
+            return
+
+        print("#" * 10 + "Saving Franka obs/cmd history...")
+        self.operator.save_obs_cmd_history()
+        self._saved_obs_cmd_history = True
+        print("#" * 10 + "Franka obs/cmd history saved.")
 
 
     @property
@@ -185,6 +194,12 @@ class FrankaRobot(Robot):
         if self.debug:
             with open("src/lerobot/robots/franka/dummy_obs_dict.pkl", "rb") as f:
                 obs_dict = pickle.load(f)
+                new_dict = {}
+                for k,v in obs_dict.items():
+                    if "joint" in k:
+                        new_key = k.replace('joint_pos.', 'joint')
+                        new_dict[new_key] = v
+                obs_dict.update(new_dict)
         else:
             obs_dict = {}
             obs_dict["camera_side"], _ = self.side_subscriber.recv_rgb_image()
@@ -199,6 +214,10 @@ class FrankaRobot(Robot):
 
             joint_pos = self.operator.robot_interface.last_q.tolist()
             for i, pos in enumerate(joint_pos):
-                obs_dict[f"joint_pos.{i+1}"] = pos
+                obs_dict[f"joint{i+1}"] = pos
             obs_dict["gripper_pos"] = self.operator.robot_interface.last_gripper_q
+            if TORQUE_OBS:
+                joint_torques = self.operator.robot_interface.last_tau_ext_hat_filtered.tolist()
+                for i, tau in enumerate(joint_torques):
+                    obs_dict[f"joint{i+1}_tau"] = tau
         return obs_dict

@@ -45,4 +45,13 @@ echo "  inference      PID: ${INFERENCE_PID}"
 echo
 echo "Press Ctrl+C to stop pi_05_inference.bash, then data_collect.py."
 
-wait
+wait "${INFERENCE_PID}"
+INFERENCE_STATUS=$?
+
+echo
+echo "pi_05_inference.bash exited with status ${INFERENCE_STATUS}."
+echo "Stopping data_collect.py..."
+kill -INT -- "-${DATA_PID}" 2>/dev/null || true
+wait "${DATA_PID}" 2>/dev/null || true
+
+exit "${INFERENCE_STATUS}"

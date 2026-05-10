@@ -10,4 +10,5 @@ from ..config import RobotConfig
 @dataclass
 class FrankaConfig(RobotConfig):
     port: str
+    record: str = "last_recording"
     cameras: dict[str, CameraConfig] = field(default_factory=dict)

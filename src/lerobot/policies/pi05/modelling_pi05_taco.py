@@ -17,6 +17,7 @@
 import builtins
 import logging
 import math
+import time
 from collections import deque
 import os
 from pathlib import Path
@@ -40,6 +41,8 @@ from transformers.modeling_utils import no_init_weights
 from transformers.utils import cached_file
 from sklearn.metrics.pairwise import cosine_similarity
 
+from lerobot.policies.pi05.robomonkey_utils import get_robomonkey_action
+
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies.pi05.configuration_pi05 import PI05Config
 from lerobot.policies.pretrained import PreTrainedPolicy, T
@@ -56,13 +59,12 @@ from functools import partial
 from safetensors.torch import load_file
 from .vlm_client import VLMClient
 from PIL import Image, ImageDraw, ImageFont
-# ssh -N -f -L localhost:35959:localhost:35959 -J jcoholich3@sky1.cc.gatech.edu jcoholich3@perseverance.cc.gatech.edu
+# ssh -N -f -L localhost:3100:localhost:3100 -J jcoholich3@sky1.cc.gatech.edu jcoholich3@crushinator.cc.gatech.edu
 VLLM_SERVERS=(
-    "http://perseverance.cc.gatech.edu:35959",
-    "http://clippy.cc.gatech.edu:56749",
-    "http://shakey.cc.gatech.edu:53727",
-    "http://cheetah.cc.gatech.edu:33793",
-    "http://ig-88.cc.gatech.edu:56151",
+    #"http://starrysky:51763",
+    # "http://voltron:3100",
+    "http://kitt:33223",
+    # "http://trublu:40003",
 )
 
 # TRAJ_COLORS = (
@@ -124,11 +126,16 @@ if vlm_io_path.exists() and vlm_io_path.is_dir():
         if file.is_file():
             file.unlink()
 
-MAX_CHUNKS = 6
-INTERVENTIONS = False
+MAX_CHUNKS = 8
+# INTERVENTIONS = False
 # INTERVENTIONS = "PIVOT"
 # INTERVENTIONS = "primitive"
-# INTERVENTIONS = "ensemble"
+INTERVENTIONS = "ensemble"
+# INTERVENTIONS = "robomonkey"
+ROBOMONKEY_SERVER = os.environ.get("ROBOMONKEY_SERVER", "http://127.0.0.1:3100")
+ROBOMONKEY_ALL_CHUNKS = 1       # whether to send all chunks to robomonkey for all actions in rollout (1), or only first action chunk (0)
+ROBOMONKEY_N_SAMPLES = 5       # number of trajectories to sample from robomonkey for each action chunk
+ROBOMONKEY_AUGMENTED_SAMPLES = 8  # number of augmented trajectories to create from each original trajectory sample from robomonkey (e.g. via noise or time warping)
 TRAJ_STD_PERTURB = 0.01  # 0.01
 USE_WRIST = False
 MANUAL_GUIDANCE = False
@@ -401,6 +408,98 @@ def resize_with_pad_torch(  # see openpi `resize_with_pad_torch` (exact copy)
         padded_images = padded_images.permute(0, 2, 3, 1)  # [b, c, h, w] -> [b, h, w, c]
 
     return padded_images
+
+
+def _quat_normalize(quat):
+    return quat / quat.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+
+
+def _quat_inverse(quat):
+    quat = _quat_normalize(quat)
+    return torch.cat([-quat[..., :3], quat[..., 3:]], dim=-1)
+
+
+def _quat_multiply(quat1, quat0):
+    x0, y0, z0, w0 = quat0.unbind(dim=-1)
+    x1, y1, z1, w1 = quat1.unbind(dim=-1)
+    return torch.stack(
+        [
+            w1 * x0 + x1 * w0 + y1 * z0 - z1 * y0,
+            w1 * y0 - x1 * z0 + y1 * w0 + z1 * x0,
+            w1 * z0 + x1 * y0 - y1 * x0 + z1 * w0,
+            w1 * w0 - x1 * x0 - y1 * y0 - z1 * z0,
+        ],
+        dim=-1,
+    )
+
+
+def _quat_to_rpy(quat):
+    quat = _quat_normalize(quat)
+    x, y, z, w = quat.unbind(dim=-1)
+    roll = torch.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
+    pitch = torch.asin((2.0 * (w * y - z * x)).clamp(-1.0, 1.0))
+    yaw = torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    return torch.stack([roll, pitch, yaw], dim=-1)
+
+
+def _rpy_to_quat(rpy):
+    roll, pitch, yaw = rpy.unbind(dim=-1)
+    cr, sr = torch.cos(roll * 0.5), torch.sin(roll * 0.5)
+    cp, sp = torch.cos(pitch * 0.5), torch.sin(pitch * 0.5)
+    cy, sy = torch.cos(yaw * 0.5), torch.sin(yaw * 0.5)
+    return torch.stack(
+        [
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+            cr * cp * cy + sr * sp * sy,
+        ],
+        dim=-1,
+    )
+
+
+def _canonicalize_eve_quat(quat):
+    quat = _quat_normalize(quat)
+    return torch.where(quat[..., :1] < 0.0, -quat, quat)
+
+
+def _as_action_tensor(action, like=None):
+    if isinstance(action, torch.Tensor):
+        return action.to(device=like.device, dtype=like.dtype) if isinstance(like, torch.Tensor) else action
+    dtype = like.dtype if isinstance(like, torch.Tensor) else torch.float32
+    device = like.device if isinstance(like, torch.Tensor) else None
+    action = torch.as_tensor(action, dtype=dtype)
+    return action.to(device) if device is not None else action
+
+
+def current_eve_action(robot, like=None):
+    if robot.debug:
+        quat = np.array([0.99982, 0.00968, 0.01597, 0.00365], dtype=np.float32)
+        pos = np.array([0.45868, 0.03165, 0.26477], dtype=np.float32)
+        gripper = -1.0
+    else:
+        quat, pos = robot.operator.robot_interface.last_eef_quat_and_pos
+        pos = pos.reshape(3)
+        gripper = robot.operator.robot_interface.last_gripper_q
+    return _as_action_tensor(np.concatenate([pos, quat, [gripper]]), like=like)
+
+
+def eve2robomonkey_actions(eve_actions, current_action):
+    eve_actions = _as_action_tensor(eve_actions)
+    current_action = _as_action_tensor(current_action, like=eve_actions)
+    delta_pos = eve_actions[..., :3] - current_action[..., :3]
+    delta_quat = _quat_multiply(eve_actions[..., 3:7], _quat_inverse(current_action[..., 3:7]))
+    delta_rpy = _quat_to_rpy(delta_quat)
+    return torch.cat([delta_pos, delta_rpy, eve_actions[..., 7:8]], dim=-1)
+
+
+def robomonkey2eve_actions(robomonkey_actions, current_action):
+    current_action = _as_action_tensor(current_action)
+    robomonkey_actions = _as_action_tensor(robomonkey_actions, like=current_action)
+    eve_pos = current_action[..., :3] + robomonkey_actions[..., :3]
+    delta_quat = _rpy_to_quat(robomonkey_actions[..., 3:6])
+    eve_quat = _canonicalize_eve_quat(_quat_multiply(delta_quat, current_action[..., 3:7]))
+    return torch.cat([eve_pos, eve_quat, robomonkey_actions[..., 6:7]], dim=-1)
 
 
 # Define the complete layer computation function for gradient checkpointing
@@ -1263,11 +1362,12 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
         self.reset()
         if INTERVENTIONS:
-            self.vlm_client = VLMClient(server_url="http://127.0.0.1:35959")
+            vllm_port = VLLM_SERVERS[0].rstrip("/").rsplit(":", 1)[1]
+            self.vlm_client = VLMClient(server_url=f"http://127.0.0.1:{vllm_port}")
         if USE_WRIST:
             prompt_template_path = "src/lerobot/policies/pi05/vlm_prompt_template_wrist.txt"
         else:
-            prompt_template_path = "src/lerobot/policies/pi05/vlm_prompt_template.txt"
+            prompt_template_path = "src/lerobot/policies/pi05/vlm_pivot_qwen3vl_8b.txt"
         primitive_prompt_template_path = "src/lerobot/policies/pi05/primitive_prompt_template.txt"
         with open(prompt_template_path, "r") as f:
             self.pivot_prompt_template = f.readlines()
@@ -1423,6 +1523,9 @@ class PI05PolicyTaco(PreTrainedPolicy):
     def reset(self):
         """Reset internal state - called when environment resets."""
         self._action_queue = deque(maxlen=self.config.n_action_steps)
+        self._robomonkey_action_samples = None
+        self._robomonkey_action_index = 0
+        self._robomonkey_samples_exhausted = False
         self._queues = {
             ACTION: deque(maxlen=self.config.n_action_steps),
         }
@@ -1498,23 +1601,31 @@ class PI05PolicyTaco(PreTrainedPolicy):
         actions = pad_vector(batch[ACTION], self.config.max_action_dim)
         return actions
 
+    def _vlm_io_output_dir(self, robot) -> Path:
+        operator = getattr(robot, "operator", None)
+        record = getattr(operator, "record", None)
+        storage_location = getattr(operator, "storage_location", None)
+        if record is None or storage_location is None:
+            return Path(VLM_IO_OUTPUT_DIR)
+        return Path.cwd() / storage_location / f"demonstration_{record}"
+
     def gen_pivot_text_prompt(self, task, num_traj):
-        trajectory_choices = ["<TRAJECTORY_CHOICES>"]
-        colors = [color_name.lower() for color_name in TRAJ_COLOR_NAMES[:num_traj]]
-        for color in colors:
-            trajectory_choices.append(
-                f'    "{color}": Choose this to command the robot to follow the {color} path.'
-            )
-        # trajectory_choices.append(
-        #     '    "none": Choose this to reject all proposed trajectories. This is the safest option if all paths lead to failure (e.g., collision, incorrect placement).'
-        # )
-        trajectory_choices.append("</TRAJECTORY_CHOICES>")
+        # trajectory_choices = ["<TRAJECTORY_CHOICES>"]
+        # colors = [color_name.lower() for color_name in TRAJ_COLOR_NAMES[:num_traj]]
+        # for color in colors:
+        #     trajectory_choices.append(
+        #         f'    "{color}": Choose this to command the robot to follow the {color} path.'
+        #     )
+        # # trajectory_choices.append(
+        # #     '    "none": Choose this to reject all proposed trajectories. This is the safest option if all paths lead to failure (e.g., collision, incorrect placement).'
+        # # )
+        # trajectory_choices.append("</TRAJECTORY_CHOICES>")
 
         prompt = "".join(copy.copy(self.pivot_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
-        prompt = prompt.replace("<TRAJECTORY_CHOICES>", "\n".join(trajectory_choices))
-        prompt = prompt.replace("<NUM_TRAJECTORIES/>", format_small_number_word(num_traj))
-        prompt = prompt.replace("<TRAJECTORY_COLOR_LIST/>", format_natural_language_list(colors))
-        prompt = prompt.replace("<TRAJECTORY_COLOR_OPTIONS/>", ", ".join(f'"{color}"' for color in colors))
+        # prompt = prompt.replace("<TRAJECTORY_CHOICES>", "\n".join(trajectory_choices))
+        # prompt = prompt.replace("<NUM_TRAJECTORIES/>", format_small_number_word(num_traj))
+        # prompt = prompt.replace("<TRAJECTORY_COLOR_LIST/>", format_natural_language_list(colors))
+        # prompt = prompt.replace("<TRAJECTORY_COLOR_OPTIONS/>", ", ".join(f'"{color}"' for color in colors))
         return prompt
 
     def gen_primitive_text_prompt(self, task):
@@ -1546,11 +1657,27 @@ class PI05PolicyTaco(PreTrainedPolicy):
         if len(self._action_queue) == 0:
             if self.count == MAX_CHUNKS and not MANUAL_GUIDANCE:
                 sys.exit(0)
+            robomonkey_cache_active = (
+                INTERVENTIONS == "robomonkey"
+                and self._robomonkey_action_samples is not None
+                and self._robomonkey_action_index < self._robomonkey_action_samples.shape[1]
+            )
+            robomonkey_intervention = (
+                INTERVENTIONS == "robomonkey"
+                and (robomonkey_cache_active or ROBOMONKEY_ALL_CHUNKS or not self._robomonkey_samples_exhausted)
+                and (ROBOMONKEY_ALL_CHUNKS or self.count == 0 or self.count == 1 or robomonkey_cache_active)
+            )
+            regular_intervention = (
+                INTERVENTIONS
+                and INTERVENTIONS != "robomonkey"
+                and (self.count == 0 or self.count == 1)
+            )
+            increment_count = True
             intervention_period = 1
             # consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
             guidance_scale = 20.0
             print(f"\nGenerating action chunk number {self.count}")
-            if (self.count == 0 or self.count == 1) and INTERVENTIONS and not (MANUAL_GUIDANCE or VIS_SPREADS):  # intervene
+            if (regular_intervention or robomonkey_intervention) and not (MANUAL_GUIDANCE or VIS_SPREADS):  # intervene
                 print(f"Intervention step...")
                 print(f"Intervention mode: {INTERVENTIONS}")
                 if INTERVENTIONS == "PIVOT":
@@ -1566,15 +1693,75 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     pivot_guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False)
                     primitive_guidance_action = self.primitive_guidance(batch, postprocessor, robot, save_imgs=False)
                     guidance_action = self.action_ensemble(pivot_guidance_action, primitive_guidance_action, batch, postprocessor, robot, save_imgs=True)
+                elif INTERVENTIONS == "robomonkey":
+                    if robomonkey_cache_active:
+                        increment_count = False
+                    else:
+                        if batch["observation.state"].device.type == "cuda":
+                            torch.cuda.synchronize(batch["observation.state"].device)
+                        policy_start_time = time.perf_counter()
+                        self._robomonkey_action_samples = self.predict_action_chunk(
+                            batch,
+                            num_samples=ROBOMONKEY_N_SAMPLES,
+                            guidance_actions=None,
+                            guidance_scale=None,
+                            consistency_guidance=None,
+                            )
+                        if self._robomonkey_action_samples.device.type == "cuda":
+                            torch.cuda.synchronize(self._robomonkey_action_samples.device)
+                        print(f"[ROBOMONKEY] policy prediction time: {time.perf_counter() - policy_start_time:.4f}s")
+                        self._robomonkey_action_index = 0
+                        self._robomonkey_samples_exhausted = False
+                    action_samples = self._robomonkey_action_samples
+                    robomonkey_prompt_img = batch['observation.images.camera_front'][:1, :, :, 140:500]
+                    robomonkey_prompt_img = (
+                        robomonkey_prompt_img[0]
+                        .detach()
+                        .clamp(0, 1)
+                        .mul(255)
+                        .byte()
+                        .permute(1, 2, 0)
+                        .cpu()
+                        .numpy()
+                    )
+                    index_into_chunk = self._robomonkey_action_index
+                    q01 = torch.as_tensor(
+                        postprocessor.steps[0].stats['action']['min'],
+                        device=action_samples.device,
+                        dtype=action_samples.dtype,
+                    )
+                    q99 = torch.as_tensor(
+                        postprocessor.steps[0].stats['action']['max'],
+                        device=action_samples.device,
+                        dtype=action_samples.dtype,
+                    )
+                    denom = q99 - q01
+                    current_action = current_eve_action(robot, like=action_samples)
+                    eve_action_samples = (action_samples[:, index_into_chunk, :] + 1.0) / 2.0 * denom + q01
+                    robomonkey_action_samples = get_robomonkey_action(
+                        eve2robomonkey_actions(eve_action_samples, current_action),
+                        batch['task'][0].split(',')[0].split(':')[1].strip(),
+                        robomonkey_prompt_img,
+                        ROBOMONKEY_SERVER,
+                        "robomonkey_imgs",  # robomonkey
+                        ROBOMONKEY_AUGMENTED_SAMPLES,
+                    )
+                    actions = robomonkey2eve_actions(robomonkey_action_samples, current_action)
+                    actions = (2.0 * (actions - q01) / denom - 1.0).reshape(1, 1, -1)
+                    self._robomonkey_action_index += 1
+                    if self._robomonkey_action_index >= self._robomonkey_action_samples.shape[1]:
+                        self._robomonkey_action_samples = None
+                        self._robomonkey_samples_exhausted = True
                 else:
                     raise RuntimeError
-                actions = self.predict_action_chunk(
-                    batch,
-                    num_samples=1,
-                    guidance_actions=guidance_action,
-                    guidance_scale=guidance_scale,
-                    consistency_guidance=None,
-                    )
+                if INTERVENTIONS != "robomonkey":
+                    actions = self.predict_action_chunk(
+                        batch,
+                        num_samples=1,
+                        guidance_actions=guidance_action,
+                        guidance_scale=guidance_scale,
+                        consistency_guidance=None,
+                        )
             elif MANUAL_GUIDANCE:
                 print(f"Manual guidance step...")
                 # Example of manual guidance: guide to move right
@@ -1634,7 +1821,8 @@ class PI05PolicyTaco(PreTrainedPolicy):
             #     save_imgs=True,
             #     )
             # actions = actions[0:1]
-            self.count += 1
+            if increment_count:
+                self.count += 1
             self._action_queue.extend(actions.transpose(0, 1))
             # sys.exit(0)
         return self._action_queue.popleft()
@@ -1760,7 +1948,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                 postprocessor=postprocessor,
                 name=f"ensemble_action_{self.count}",
                 save_imgs=True,
-                save_dir=VLM_IO_OUTPUT_DIR,
+                save_dir=self._vlm_io_output_dir(robot),
                 )
         return combined_action
 
@@ -1812,7 +2000,14 @@ class PI05PolicyTaco(PreTrainedPolicy):
             chosen_idx = 0
         print(f"Selected primitive number {chosen_idx} label: {primitive_labels[chosen_idx]}")
         print(f"Reasoning: {generated_text}")
-        save_VLM_io(pil_img, generated_text, self.count, prompt_text=text_prompt, suffix="primitive")
+        save_VLM_io(
+            pil_img,
+            generated_text,
+            self.count,
+            prompt_text=text_prompt,
+            output_dir=self._vlm_io_output_dir(robot),
+            suffix="primitive",
+        )
         guidance_action = primitive_actions[chosen_idx: chosen_idx + 1]
         return guidance_action.to(batch['observation.state'].device)
 
@@ -1839,6 +2034,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             postprocessor=postprocessor,
             name=f"predicted_actions_{self.count}",
             save_imgs=save_imgs,
+            save_dir=self._vlm_io_output_dir(robot),
             )
         task = batch['task'][0].split(',')[0].split(':')[1].strip()
         text_prompt = self.gen_pivot_text_prompt(task, num_trajs)
@@ -1846,6 +2042,9 @@ class PI05PolicyTaco(PreTrainedPolicy):
             pil_img = Image.fromarray(cv2.cvtColor(wrist_prompt_img, cv2.COLOR_BGR2RGB))
         else:
             pil_img = Image.fromarray(cv2.cvtColor(front_prompt_img, cv2.COLOR_BGR2RGB))
+        vlm_io_output_dir = self._vlm_io_output_dir(robot)
+        vlm_io_output_dir.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(vlm_io_output_dir / "cur_rgb.png"), front_prompt_img)
         chosen_color, generated_text = self.vlm_client.select_trajectories(
             pil_img,
             text_prompt,
@@ -1854,7 +2053,14 @@ class PI05PolicyTaco(PreTrainedPolicy):
         traj_idx = color2idx(chosen_color)
         print(f"Selected action number {traj_idx} color: {chosen_color}")
         print(f"Reasoning: {generated_text}")
-        save_VLM_io(pil_img, generated_text, self.count, prompt_text=text_prompt, suffix="pivot")
+        save_VLM_io(
+            pil_img,
+            generated_text,
+            self.count,
+            prompt_text=text_prompt,
+            output_dir=vlm_io_output_dir,
+            suffix="pivot",
+        )
         guidance_action = actions[traj_idx: traj_idx + 1]
         return guidance_action
 

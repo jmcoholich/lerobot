@@ -1,8 +1,10 @@
 rm -rf /home/jeremiah/.cache/huggingface/lerobot/dummy
 
+RECORD_NAME="${1:-last_recording}"
 export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH}"
 
 python src/lerobot/scripts/lerobot_record.py \
+  --robot.record="${RECORD_NAME}" \
   --robot.type=franka \
   --robot.id=franka \
   --robot.port=dummy \
@@ -20,3 +22,4 @@ python src/lerobot/scripts/lerobot_record.py \
 # prompts: place both blocks in the bin
 # place the pink block, then the blue block in the bin
 # place the blue block, then the pink block in the bin
+# "place the coffee pod in the bin"

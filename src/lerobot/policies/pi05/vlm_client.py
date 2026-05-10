@@ -17,7 +17,10 @@ class VLMClient:
     Sends images with trajectory visualizations to the VLM and gets trajectory selection.
     """
 
-    def __init__(self, server_url: str, model_name: str = "Qwen/Qwen2.5-VL-72B-Instruct"):
+    # def __init__(self, server_url: str, model_name: str = "Qwen/Qwen2.5-VL-72B-Instruct"):
+    # def __init__(self, server_url: str, model_name: str = "Qwen/Qwen3-VL-32B-Instruct"):
+    # def __init__(self, server_url: str, model_name: str = "Qwen/Qwen3.6-27B"):
+    def __init__(self, server_url: str, model_name: str = "Qwen/Qwen3-VL-8B-Instruct"):
         """
         Initialize the VLM Client.
 
@@ -64,8 +67,8 @@ class VLMClient:
         annotated_image: Image.Image,
         prompt_text: str,
         num_trajectories: int,
-        max_new_tokens: int = 1024,
-        timeout: int = 60
+        max_new_tokens: int = 4096,
+        timeout: int = 600
     ) -> tuple[Tuple[int, int], str]:
         """
         Send an annotated image to the VLM and get trajectory selections for both arms.
@@ -90,7 +93,32 @@ class VLMClient:
                 {"role": "user", "content": user_content}
             ],
             "max_tokens": max_new_tokens,
+            # Default sampling
             "temperature": 0.0,
+            ######################################### No think sampling
+            # "temperature": 0.7,
+            # "top_p": 0.8,
+            # "presence_penalty": 1.5,
+            # "extra_body": {
+            #     "top_k": 20,
+            #     "min_p": 0.0,
+            #     "repetition_penalty": 1.0,
+            #     "chat_template_kwargs": {"enable_thinking": False},
+            # },
+            ######################################### Think sampling
+            # "temperature": 1.0,
+            # "top_p": 0.95,
+            # "top_k": 20,
+            # "min_p": 0.0,
+            # "presence_penalty": 0.0,
+            # "repetition_penalty": 1.0
+            ######################################### Image input sampling
+            # "temperature": 1.0,
+            # "top_p": 0.95,
+            # "presence_penalty": 0.0,
+            # "extra_body": {
+            #     "top_k": 20,
+            # },
         }
 
         try:
@@ -100,9 +128,13 @@ class VLMClient:
                 headers={"Content-Type": "application/json"},
                 timeout=timeout
             )
+            print("response", response)
+            print("response.text", response.text)
             response.raise_for_status()
             result = response.json()
+            print("result", result)
             generated_text = result["choices"][0]["message"]["content"]
+            print("generated_text", generated_text)
 
             chosen_color = self._extract_chosen_color(generated_text)
             self.last_text_responses = [generated_text]
