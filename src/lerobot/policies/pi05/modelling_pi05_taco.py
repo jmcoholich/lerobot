@@ -130,8 +130,8 @@ MAX_CHUNKS = 8
 # INTERVENTIONS = False
 # INTERVENTIONS = "PIVOT"
 # INTERVENTIONS = "primitive"
-INTERVENTIONS = "ensemble"
-# INTERVENTIONS = "robomonkey"
+# INTERVENTIONS = "ensemble"
+INTERVENTIONS = "robomonkey"
 ROBOMONKEY_SERVER = os.environ.get("ROBOMONKEY_SERVER", "http://127.0.0.1:3100")
 ROBOMONKEY_ALL_CHUNKS = 1       # whether to send all chunks to robomonkey for all actions in rollout (1), or only first action chunk (0)
 ROBOMONKEY_N_SAMPLES = 5       # number of trajectories to sample from robomonkey for each action chunk
@@ -1096,7 +1096,9 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
                 ]
 
                 past_key_values = expanded_cache
+        denoising_steps = 0
         while time >= -dt / 2:
+            denoising_steps += 1
             expanded_time = time.expand(bsize)
             v_t = self.denoise_step(
                 prefix_pad_masks,
@@ -1146,6 +1148,8 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
                 v_t = v_t - 40.0 * grad_vel  # hardcode guidance scale to 40
             x_t = x_t + dt * v_t
             time += dt
+
+        print(f"Number of denoising steps: {denoising_steps}")
 
         return x_t # [batch_size, horizon_steps, action_dim]
 
@@ -1934,7 +1938,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
         return loss, loss_dict
 
-    def action_ensemble(self, action1, action2, batch, postprocessor, robot, action1_weight=0.5, save_imgs=False):
+    def action_ensemble(self, action1, action2, batch, postprocessor, robot, action1_weight=0.75, save_imgs=False):
         assert action1.shape[0] == 1
         assert action2.shape[0] == 1
         action2_weight = 1.0 - action1_weight

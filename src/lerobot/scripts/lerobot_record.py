@@ -569,10 +569,10 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
         # if dataset:
         #     dataset.finalize()
 
-        if robot.is_connected:
+        if robot.is_connected or robot.name == "franka":
             robot.disconnect()
-        # if teleop and teleop.is_connected:
-        #     teleop.disconnect()
+        if teleop and teleop.is_connected:
+            teleop.disconnect()
 
         if not is_headless() and listener:
             listener.stop()

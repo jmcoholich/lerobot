@@ -11,7 +11,7 @@ python src/lerobot/scripts/lerobot_record.py \
   --dataset.push_to_hub=false \
   --dataset.root='/home/jeremiah/.cache/huggingface/lerobot/dummy' \
   --dataset.repo_id=dummy/eval_dummy \
-  --dataset.single_task="place both blocks in the bin" \
+  --dataset.single_task="place the coffee pod in the bin" \
   --dataset.episode_time_s=30000 \
   --dataset.num_episodes=1 \
   --policy.dtype=bfloat16 \
@@ -23,3 +23,4 @@ python src/lerobot/scripts/lerobot_record.py \
 # place the pink block, then the blue block in the bin
 # place the blue block, then the pink block in the bin
 # "place the coffee pod in the bin"
+# "place the travel adapter in the bin"

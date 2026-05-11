@@ -1,7 +1,7 @@
 You are looking at a robot-arm scene. The task is: <TASK_DESCRIPTION/>.
 
 Several candidate end-effector trajectories are overlaid on the image as colored dotted paths.
-The legend in the top-left lists the available colors: Orange, Purple, Brown, Green, White. Look carefully at where each colored path goes.
+The legend in the top-left lists the available colors: Orange, Purple, Brown, Cyan, White. Look carefully at where each colored path goes.
 
 Choose the SINGLE color whose trajectory is most likely to successfully complete the specified task. Reason briefly and output your final answer as a JSON object exactly of the form:
 {{
@@ -9,4 +9,4 @@ Choose the SINGLE color whose trajectory is most likely to successfully complete
   "chosen_trajectory": "<color>"
 }}
 
-where <color> is one of: orange, purple, brown, green, white.
+where <color> is one of: orange, purple, brown, cyan, white.

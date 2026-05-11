@@ -5,12 +5,13 @@ from openteach.components.operators.franka import (
     CONFIG_ROOT,
     FrankaArmOperator,
 )
+import contextlib
 import yaml
 import os
+import signal
 from easydict import EasyDict
 import numpy as np
 import pickle
-import sys
 
 np.set_printoptions(
     suppress=True,      # disable scientific notation
@@ -73,6 +74,7 @@ class FrankaRobot(Robot):
             "camera_front",
         ]
         self._saved_obs_cmd_history = False
+        self._disconnected = False
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
@@ -171,14 +173,58 @@ class FrankaRobot(Robot):
         pass
 
     def disconnect(self) -> None:
-        if self._saved_obs_cmd_history:
-            print("#" * 10 + "Franka obs/cmd history already saved; skipping.")
+        if self._disconnected:
+            print("#" * 10 + "Franka already disconnected; skipping.")
             return
 
-        print("#" * 10 + "Saving Franka obs/cmd history...")
-        self.operator.save_obs_cmd_history()
-        self._saved_obs_cmd_history = True
-        print("#" * 10 + "Franka obs/cmd history saved.")
+        old_sigint_handler = signal.getsignal(signal.SIGINT)
+        try:
+            if not self._saved_obs_cmd_history:
+                print("#" * 10 + "Saving Franka obs/cmd history...")
+
+                def _defer_sigint(signum, frame):
+                    print("Ctrl+C received while saving Franka history; finishing cleanup first.")
+
+                signal.signal(signal.SIGINT, _defer_sigint)
+                self.operator.save_obs_cmd_history()
+                self._saved_obs_cmd_history = True
+                print("#" * 10 + "Franka obs/cmd history saved.")
+        finally:
+            with contextlib.suppress(ValueError):
+                signal.signal(signal.SIGINT, old_sigint_handler)
+            self._stop_robot_control()
+            self._close_camera_subscribers()
+            self._close_robot_interface()
+            self._disconnected = True
+
+    def _stop_robot_control(self) -> None:
+        if self.debug:
+            return
+        robot_interface = getattr(self.operator, "robot_interface", None)
+        controller_cfg = getattr(self.operator, "controller_cfg", None)
+        if robot_interface is None or controller_cfg is None:
+            return
+        with contextlib.suppress(Exception):
+            robot_interface.control(
+                controller_type=controller_cfg.controller_type,
+                action=np.zeros(6),
+                controller_cfg=controller_cfg,
+                termination=True,
+            )
+
+    def _close_camera_subscribers(self) -> None:
+        for subscriber in self.cameras:
+            stop = getattr(subscriber, "stop", None)
+            if stop is not None:
+                with contextlib.suppress(Exception):
+                    stop()
+
+    def _close_robot_interface(self) -> None:
+        robot_interface = getattr(self.operator, "robot_interface", None)
+        close = getattr(robot_interface, "close", None)
+        if close is not None:
+            with contextlib.suppress(Exception):
+                close()
 
 
     @property
