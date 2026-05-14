@@ -5,13 +5,13 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
 
 # Configuration
-REPO_ID = "lerobot/plug3_unplug3_bc_and_dagger"
-DATASET_NAME = "plug3_unplug3_bc_and_dagger"
+REPO_ID = "lerobot/unplug3_bc_and_dagger"
+DATASET_NAME = "unplug3_bc_and_dagger"
 ORIG_DATASET_PATHS = (
-    Path("/home/jeremiah/openteach/extracted_data/plug3/h5_files"),
     Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
+    # Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
+    # Path("/data3/extracted_data/unplug3_rollouts_w_dagger/full_rollout_h5_files"),
     Path("/data3/extracted_data/unplug3_rollouts_w_dagger/full_rollout_h5_files"),
-    Path("/data3/extracted_data/plug3_rollouts_w_dagger/full_rollout_h5_files"),
 )
 
 FPS = 20
@@ -127,6 +127,7 @@ def main():
 
 
 def get_task_instructions(fname):
+    assert "plug2" not in fname, "This dataset should only contain plug3 and unplug3 episodes"
     if "unplug3" in fname:
         return "Unplug the charger"
     else:

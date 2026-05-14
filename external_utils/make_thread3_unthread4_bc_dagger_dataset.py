@@ -5,8 +5,8 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
 
 # Configuration
-REPO_ID = "lerobot/thread3_unthread4_bc_and_dagger"
-DATASET_NAME = "thread3_unthread4_bc_and_dagger"
+REPO_ID = "lerobot/thread3_unthread4_bc_and_dagger_FIXED"
+DATASET_NAME = "thread3_unthread4_bc_and_dagger_FIXED"
 ORIG_DATASET_PATHS = (
     Path("/home/jeremiah/openteach/extracted_data/thread3/h5_files"),
     Path("/home/jeremiah/openteach/extracted_data/unthread4/h5_files"),
@@ -127,6 +127,7 @@ def main():
 
 
 def get_task_instructions(fname):
+    assert "unthread3" not in fname, "unthread3 files should not be included in this dataset"
     if "unthread4" in fname:
         return "Unscrew the nut and set it on the table"
     else:
