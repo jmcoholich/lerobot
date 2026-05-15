@@ -6,12 +6,12 @@
 #SBATCH -c 12
 #SBATCH --mem=32G
 #SBATCH --qos=long
-#SBATCH -x nestor
-JOB_NAME=$1
+#SBATCH -x nestor,chappie,ig-88,perseverance
+JOB_NAME=$2
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=100
 LR=5e-5
-DATASET='thread3'
+DATASET=$1
 
 echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"

@@ -2,22 +2,22 @@
 #SBATCH --job-name=pi05_training
 #SBATCH -p kira-lab
 #SBATCH -A kira-lab
-#SBATCH -G a40:2
+#SBATCH -G a40:4
 #SBATCH --cpus-per-gpu=10
 #SBATCH --qos=long
 #SBATCH --nodes=1
 #SBATCH --mem-per-gpu=16G
-#SBATCH -x nestor
+#SBATCH -x nestor,chappie,ig-88,perseverance
 
-JOB_NAME=$1
+JOB_NAME=$2
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=100
-DATASET='plug3'
+DATASET=$1
 
 echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
 NUM_GPUS=$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
-LR=5e-5
+LR=1e-4
 
 nvidia-smi
 
