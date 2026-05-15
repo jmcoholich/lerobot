@@ -5,13 +5,13 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
 
 # Configuration
-REPO_ID = "lerobot/unplug3_bc_and_dagger"
-DATASET_NAME = "unplug3_bc_and_dagger"
+REPO_ID = "lerobot/thread3_unthread4"
+DATASET_NAME = "thread3_unthread4"
 ORIG_DATASET_PATHS = (
-    Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
-    # Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
-    # Path("/data3/extracted_data/unplug3_rollouts_w_dagger/full_rollout_h5_files"),
-    Path("/data3/extracted_data/unplug3_rollouts_w_dagger/full_rollout_h5_files"),
+    Path("/home/jeremiah/openteach/extracted_data/thread3/h5_files"),
+    Path("/home/jeremiah/openteach/extracted_data/unthread4/h5_files"),
+    # Path("/data3/extracted_data/thread3_rollouts_w_dagger/full_rollout_h5_files"),
+    # Path("/data3/extracted_data/unthread4_rollouts_w_dagger/full_rollout_h5_files"),
 )
 
 FPS = 20
@@ -127,11 +127,10 @@ def main():
 
 
 def get_task_instructions(fname):
-    assert "plug2" not in fname, "This dataset should only contain plug3 and unplug3 episodes"
-    if "unplug3" in fname:
-        return "Unplug the charger"
+    if "unthread4" in fname:
+        return "Unscrew the nut and set it on the table"
     else:
-        return "Plug the charger into the power strip"
+        return "Thread the nut onto the bolt"
 
 
 if __name__ == "__main__":
