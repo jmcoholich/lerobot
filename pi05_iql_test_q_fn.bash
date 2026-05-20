@@ -1,14 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=pi05_iql
+#SBATCH --job-name=pi05_iql_q
 #SBATCH -p kira-lab
 #SBATCH -A kira-lab
 #SBATCH -G a40:1
 #SBATCH -c 12
 #SBATCH --mem=32G
-#SBATCH --qos=long
+#SBATCH --qos=short
 
 JOB_NAME=$1
-VALUE_KEY=${2:-returns_gamma_0.995}
+Q_KEY=${2:-q_values}
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=100
 LR=5e-5
@@ -18,7 +18,7 @@ DATA_ROOT=/coc/testnvme/jcoholich3/lerobot_data
 
 echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
-echo "Value key: $VALUE_KEY"
+echo "Q key: $Q_KEY"
 
 source /coc/testnvme/$USER/.bashrc
 conda activate lerobot
@@ -36,12 +36,15 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.compile_model=false \
     --policy.gradient_checkpointing=true \
     --wandb.enable=true \
+    --wandb.project=lerobot_iql \
     --policy.dtype=bfloat16 \
     --policy.freeze_vision_encoder=false \
     --policy.train_expert_only=false \
-    --policy.use_value_model=true \
-    --policy.value_key="$VALUE_KEY" \
-    --policy.value_dim=1 \
+    --policy.use_q_model=true \
+    --policy.q_key="$Q_KEY" \
+    --policy.q_dim=1 \
+    --policy.chunk_size=$CHUNK \
+    --policy.n_action_steps=$CHUNK \
     --steps=6000 \
     --policy.optimizer_lr=$LR \
     --policy.device=cuda \

@@ -128,6 +128,11 @@ def make_pi05_pre_post_processors(
     Returns:
         A tuple containing the configured pre-processor and post-processor pipelines.
     """
+    normalize_complementary_data_keys = None
+    if config.use_value_model:
+        normalize_complementary_data_keys = {config.value_key}
+    elif config.use_q_model:
+        normalize_complementary_data_keys = {config.q_key}
 
     # Add remaining processors
     input_steps: list[ProcessorStep] = [
@@ -139,7 +144,7 @@ def make_pi05_pre_post_processors(
             features={**config.input_features, **config.output_features},
             norm_map=config.normalization_mapping,
             stats=dataset_stats,
-            normalize_complementary_data_keys={config.value_key} if config.use_value_model else None,
+            normalize_complementary_data_keys=normalize_complementary_data_keys,
         ),
         Pi05PrepareStateTokenizerProcessorStep(max_state_dim=config.max_state_dim),
         TokenizerProcessorStep(

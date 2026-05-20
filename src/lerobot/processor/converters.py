@@ -174,6 +174,11 @@ def _extract_complementary_data(batch: dict[str, Any]) -> dict[str, Any]:
     episode_index_key = {"episode_index": batch["episode_index"]} if "episode_index" in batch else {}
     reward_key = {"reward": batch["reward"]} if "reward" in batch else {}
     returns_keys = {k: v for k, v in batch.items() if k.startswith("returns_gamma_")}
+    q_keys = {
+        k: v
+        for k, v in batch.items()
+        if k.startswith("q_") or k in {"q_values", "q_target", "q_targets"}
+    }
 
     return {
         **pad_keys,
@@ -184,6 +189,7 @@ def _extract_complementary_data(batch: dict[str, Any]) -> dict[str, Any]:
         **episode_index_key,
         **reward_key,
         **returns_keys,
+        **q_keys,
     }
 
 

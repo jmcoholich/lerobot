@@ -195,6 +195,109 @@ class WandBLogger:
 
             self._wandb.log(data={f"{mode}/{k}": v}, step=step)
 
+    def _to_wandb_image(self, image, caption: str | None = None):
+        import torch
+
+        if image is None:
+            return None
+
+        image = image.detach().cpu()
+        if image.ndim == 4:
+            image = image[-1]
+        if image.ndim != 3:
+            return None
+
+        if image.shape[0] in {1, 3, 4}:
+            image = image.permute(1, 2, 0)
+
+        image = image.to(dtype=torch.float32)
+        if image.numel() > 0 and image.min() < 0:
+            image = (image + 1.0) / 2.0
+        elif image.numel() > 0 and image.max() > 1.0:
+            image = image / 255.0
+        image = image.clamp(0.0, 1.0)
+        return self._wandb.Image(image.numpy(), caption=caption)
+
+    @staticmethod
+    def _table_value(tensor, index: int):
+        if tensor is None:
+            return None
+        value = tensor.detach().cpu() if tensor.ndim == 0 else tensor[index].detach().cpu()
+        if value.numel() == 1:
+            return float(value.item())
+        return [float(x) for x in value.flatten().tolist()]
+
+    @staticmethod
+    def _state_preview(batch: dict, state_key: str, index: int, max_values: int = 32):
+        if state_key not in batch:
+            return None
+        state = batch[state_key][index].detach().cpu().flatten()
+        values = [round(float(x), 4) for x in state[:max_values].tolist()]
+        suffix = " ..." if state.numel() > max_values else ""
+        return f"{values}{suffix}"
+
+    def log_iql_prediction_samples(
+        self,
+        *,
+        batch: dict,
+        image_keys: list[str],
+        state_key: str,
+        predictions,
+        targets,
+        rewards,
+        target_key: str,
+        prediction_kind: str,
+        step: int,
+        max_samples: int = 5,
+        mode: str = "train",
+        raw_predictions=None,
+        raw_targets=None,
+    ):
+        if predictions is None or targets is None:
+            return
+
+        batch_size = min(max_samples, predictions.shape[0], targets.shape[0])
+        if batch_size <= 0:
+            return
+
+        present_image_keys = [key for key in image_keys if key in batch]
+        image_columns = [key.removeprefix("observation.images.") for key in present_image_keys]
+        columns = [
+            "sample",
+            *image_columns,
+            "state",
+            "target_key",
+            "gt_target",
+            "prediction",
+            "gt_reward",
+            "gt_target_normalized",
+            "prediction_normalized",
+        ]
+        rows = []
+        for index in range(batch_size):
+            images = [
+                self._to_wandb_image(batch[image_key][index], caption=image_key)
+                for image_key in present_image_keys
+            ]
+            rows.append(
+                [
+                    index,
+                    *images,
+                    self._state_preview(batch, state_key, index),
+                    target_key,
+                    self._table_value(raw_targets if raw_targets is not None else targets, index),
+                    self._table_value(
+                        raw_predictions if raw_predictions is not None else predictions, index
+                    ),
+                    self._table_value(rewards, index),
+                    self._table_value(targets, index),
+                    self._table_value(predictions, index),
+                ]
+            )
+
+        table = self._wandb.Table(columns=columns, data=rows)
+        self._wandb.log({f"{mode}/iql_{prediction_kind}_prediction_samples": table}, step=step)
+
     def log_video(self, video_path: str, step: int, mode: str = "train"):
         if mode not in {"train", "eval"}:
             raise ValueError(mode)

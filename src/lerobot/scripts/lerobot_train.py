@@ -37,6 +37,7 @@ from lerobot.policies.factory import make_policy, make_pre_post_processors
 from lerobot.policies.pretrained import PreTrainedPolicy
 from lerobot.rl.wandb_utils import WandBLogger
 from lerobot.scripts.lerobot_eval import eval_policy_all
+from lerobot.utils.constants import OBS_STATE
 from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.logging_utils import AverageMeter, MetricsTracker
 from lerobot.utils.random_utils import set_seed
@@ -146,6 +147,61 @@ def update_policy(
     train_metrics.lr = optimizer.param_groups[0]["lr"]
     train_metrics.update_s = time.perf_counter() - start_time
     return train_metrics, output_dict
+
+
+def pop_iql_prediction_payload(output_dict: dict) -> dict | None:
+    keys = (
+        "_iql_prediction_kind",
+        "_iql_target_key",
+        "_iql_predictions",
+        "_iql_targets",
+        "_iql_rewards",
+    )
+    payload = {key: output_dict.pop(key, None) for key in keys}
+    if payload["_iql_predictions"] is None or payload["_iql_targets"] is None:
+        return None
+    return payload
+
+
+def unnormalize_iql_target_tensor(
+    tensor: torch.Tensor, target_key: str, dataset_stats: dict
+) -> torch.Tensor | None:
+    if not dataset_stats:
+        return None
+    if target_key not in dataset_stats:
+        return None
+
+    stats = dataset_stats[target_key]
+    if "q01" not in stats or "q99" not in stats:
+        return None
+
+    q01 = torch.as_tensor(stats["q01"], dtype=tensor.dtype, device=tensor.device)
+    q99 = torch.as_tensor(stats["q99"], dtype=tensor.dtype, device=tensor.device)
+    return (tensor + 1.0) * (q99 - q01) / 2.0 + q01
+
+
+def add_iql_raw_prediction_stats(output_dict: dict, payload: dict | None, dataset_stats: dict) -> None:
+    if payload is None:
+        return
+
+    target_key = payload["_iql_target_key"]
+    predictions = payload["_iql_predictions"]
+    targets = payload["_iql_targets"]
+    raw_predictions = unnormalize_iql_target_tensor(predictions, target_key, dataset_stats)
+    raw_targets = unnormalize_iql_target_tensor(targets, target_key, dataset_stats)
+    payload["_iql_raw_predictions"] = raw_predictions
+    payload["_iql_raw_targets"] = raw_targets
+    if raw_predictions is None or raw_targets is None:
+        return
+
+    kind = payload["_iql_prediction_kind"]
+    raw_abs_error = (raw_predictions - raw_targets).abs()
+    output_dict["iql_prediction_raw_mean"] = raw_predictions.mean().item()
+    output_dict["iql_target_raw_mean"] = raw_targets.mean().item()
+    output_dict["iql_abs_error_raw_mean"] = raw_abs_error.mean().item()
+    output_dict[f"{kind}_prediction_raw_mean"] = raw_predictions.mean().item()
+    output_dict[f"{kind}_target_raw_mean"] = raw_targets.mean().item()
+    output_dict[f"{kind}_abs_error_raw_mean"] = raw_abs_error.mean().item()
 
 
 @parser.wrap()
@@ -270,6 +326,10 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             processor_kwargs["preprocessor_overrides"]["normalizer_processor"][
                 "normalize_complementary_data_keys"
             ] = [cfg.policy.value_key]
+        if cfg.policy.type == "pi05" and getattr(cfg.policy, "use_q_model", False):
+            processor_kwargs["preprocessor_overrides"]["normalizer_processor"][
+                "normalize_complementary_data_keys"
+            ] = [cfg.policy.q_key]
         processor_kwargs["preprocessor_overrides"]["rename_observations_processor"] = {
             "rename_map": cfg.rename_map
         }
@@ -414,12 +474,15 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             lr_scheduler=lr_scheduler,
             rabc_weights_provider=rabc_weights,
         )
+        iql_prediction_payload = pop_iql_prediction_payload(output_dict)
+        add_iql_raw_prediction_stats(output_dict, iql_prediction_payload, dataset.meta.stats)
 
         # Note: eval and checkpoint happens *after* the `step`th training update has completed, so we
         # increment `step` here.
         step += 1
         train_tracker.step()
         is_log_step = cfg.log_freq > 0 and step % cfg.log_freq == 0 and is_main_process
+        is_iql_sample_step = step % 500 == 0 and is_main_process
         is_saving_step = step % cfg.save_freq == 0 or step == cfg.steps
         is_eval_step = cfg.eval_freq > 0 and step % cfg.eval_freq == 0
 
@@ -441,6 +504,21 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
                     )
                 wandb_logger.log_dict(wandb_log_dict, step)
             train_tracker.reset_averages()
+
+        if wandb_logger and is_iql_sample_step and iql_prediction_payload is not None:
+            wandb_logger.log_iql_prediction_samples(
+                batch=batch,
+                image_keys=list(cfg.policy.image_features.keys()),
+                state_key=OBS_STATE,
+                predictions=iql_prediction_payload["_iql_predictions"],
+                targets=iql_prediction_payload["_iql_targets"],
+                rewards=iql_prediction_payload.get("_iql_rewards"),
+                target_key=iql_prediction_payload["_iql_target_key"],
+                prediction_kind=iql_prediction_payload["_iql_prediction_kind"],
+                step=step,
+                raw_predictions=iql_prediction_payload.get("_iql_raw_predictions"),
+                raw_targets=iql_prediction_payload.get("_iql_raw_targets"),
+            )
 
         if cfg.save_checkpoint and is_saving_step:
             if is_main_process:

@@ -83,6 +83,9 @@ class PI05Config(PreTrainedConfig):
     use_value_model: bool = False  # Replace the action expert branch with a scalar value head.
     value_key: str = "returns_gamma_0.995"  # Batch key to regress when use_value_model is enabled.
     value_dim: int = 2  # Number of scalar values to predict.
+    use_q_model: bool = False  # Use the action-conditioned scalar Q-value model.
+    q_key: str = "q_values"  # Batch key to regress when use_q_model is enabled.
+    q_dim: int = 1  # Number of scalar Q-values to predict.
 
     # Optimizer settings: see openpi `AdamW`
     optimizer_lr: float = 2.5e-5  # see openpi `CosineDecaySchedule: peak_lr`
@@ -121,8 +124,17 @@ class PI05Config(PreTrainedConfig):
         if self.value_dim <= 0:
             raise ValueError(f"value_dim must be positive, got {self.value_dim}")
 
+        if self.q_dim <= 0:
+            raise ValueError(f"q_dim must be positive, got {self.q_dim}")
+
+        if self.use_value_model and self.use_q_model:
+            raise ValueError("use_value_model and use_q_model are mutually exclusive")
+
         if self.use_value_model and not self.value_key:
             raise ValueError("value_key must be non-empty when use_value_model is enabled")
+
+        if self.use_q_model and not self.q_key:
+            raise ValueError("q_key must be non-empty when use_q_model is enabled")
 
     def validate_features(self) -> None:
         """Validate and set up input/output features."""

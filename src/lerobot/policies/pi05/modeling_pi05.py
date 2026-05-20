@@ -45,6 +45,7 @@ from lerobot.utils.constants import (
     OBS_LANGUAGE_ATTENTION_MASK,
     OBS_LANGUAGE_TOKENS,
     OPENPI_ATTENTION_MASK_VALUE,
+    REWARD,
 )
 from safetensors.torch import load_file
 
@@ -1054,6 +1055,184 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         return self.action_out_proj(suffix_out)
 
 
+class PI05QPytorch(nn.Module):
+    """PI05 Q-function that predicts scalar values from observations and action chunks."""
+
+    def __init__(self, config: PI05Config):
+        super().__init__()
+        self.config = config
+
+        paligemma_config = get_gemma_config(config.paligemma_variant)
+        action_expert_config = get_gemma_config(config.action_expert_variant)
+
+        if config.image_resolution[0] != config.image_resolution[1]:
+            raise ValueError(
+                f"PaliGemma expects square image resolution, invalid resolution: {config.image_resolution}"
+            )
+
+        self.paligemma_with_expert = PaliGemmaWithExpertModel(
+            paligemma_config,
+            action_expert_config,
+            use_adarms=[False, True],
+            precision=config.dtype,
+            image_size=config.image_resolution[0],
+            freeze_vision_encoder=config.freeze_vision_encoder,
+            train_expert_only=config.train_expert_only,
+        )
+
+        self.action_in_proj = nn.Linear(config.max_action_dim, action_expert_config.width)
+        self.q_tokens = nn.Parameter(torch.randn(config.q_dim, action_expert_config.width) * 0.02)
+        self.q_adarms_cond = nn.Parameter(torch.zeros(action_expert_config.width))
+        self.q_head = nn.Sequential(
+            nn.Linear(action_expert_config.width, 1),
+        )
+        nn.init.zeros_(self.q_head[-1].weight)
+        nn.init.zeros_(self.q_head[-1].bias)
+
+        self.gradient_checkpointing_enabled = False
+
+        if config.compile_model:
+            torch.set_float32_matmul_precision("high")
+            self.forward = torch.compile(self.forward, mode=config.compile_mode)
+
+        msg = """An incorrect transformer version is used, please create an issue on https://github.com/huggingface/lerobot/issues"""
+
+        try:
+            from transformers.models.siglip import check
+
+            if not check.check_whether_transformers_replace_is_installed_correctly():
+                raise ValueError(msg)
+        except ImportError:
+            raise ValueError(msg) from None
+
+    def gradient_checkpointing_enable(self):
+        self.gradient_checkpointing_enabled = True
+        self.paligemma_with_expert.paligemma.language_model.gradient_checkpointing = True
+        self.paligemma_with_expert.paligemma.vision_tower.gradient_checkpointing = True
+        self.paligemma_with_expert.gemma_expert.model.gradient_checkpointing = True
+        logging.info("Enabled gradient checkpointing for PI05QPytorch model")
+
+    def gradient_checkpointing_disable(self):
+        self.gradient_checkpointing_enabled = False
+        self.paligemma_with_expert.paligemma.language_model.gradient_checkpointing = False
+        self.paligemma_with_expert.paligemma.vision_tower.gradient_checkpointing = False
+        self.paligemma_with_expert.gemma_expert.model.gradient_checkpointing = False
+        logging.info("Disabled gradient checkpointing for PI05QPytorch model")
+
+    def _apply_checkpoint(self, func, *args, **kwargs):
+        if self.gradient_checkpointing_enabled and self.training:
+            return torch.utils.checkpoint.checkpoint(
+                func, *args, use_reentrant=False, preserve_rng_state=False, **kwargs
+            )
+        return func(*args, **kwargs)
+
+    def _prepare_attention_masks_4d(self, att_2d_masks):
+        att_2d_masks_4d = att_2d_masks[:, None, :, :]
+        return torch.where(att_2d_masks_4d, 0.0, OPENPI_ATTENTION_MASK_VALUE)
+
+    def embed_prefix(
+        self, images, img_masks, tokens, masks
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        embs = []
+        pad_masks = []
+        att_masks = []
+
+        for img, img_mask in zip(images, img_masks, strict=True):
+
+            def image_embed_func(img):
+                return self.paligemma_with_expert.embed_image(img)
+
+            img_emb = self._apply_checkpoint(image_embed_func, img)
+            bsize, num_img_embs = img_emb.shape[:2]
+
+            embs.append(img_emb)
+            pad_masks.append(img_mask[:, None].expand(bsize, num_img_embs))
+            att_masks += [0] * num_img_embs
+
+        def lang_embed_func(tokens):
+            lang_emb = self.paligemma_with_expert.embed_language_tokens(tokens)
+            lang_emb_dim = lang_emb.shape[-1]
+            return lang_emb * math.sqrt(lang_emb_dim)
+
+        lang_emb = self._apply_checkpoint(lang_embed_func, tokens)
+        embs.append(lang_emb)
+        pad_masks.append(masks)
+
+        num_lang_embs = lang_emb.shape[1]
+        att_masks += [0] * num_lang_embs
+
+        embs = torch.cat(embs, dim=1)
+        pad_masks = torch.cat(pad_masks, dim=1)
+        att_masks = torch.tensor(att_masks, dtype=torch.bool, device=pad_masks.device)
+
+        bsize = pad_masks.shape[0]
+        att_masks = att_masks[None, :].expand(bsize, len(att_masks))
+
+        return embs, pad_masks, att_masks
+
+    def embed_action_q_suffix(self, actions):
+        action_emb = self._apply_checkpoint(self.action_in_proj, actions)
+        bsize, action_len = action_emb.shape[:2]
+
+        q_embs = self.q_tokens.to(device=action_emb.device, dtype=action_emb.dtype)
+        q_embs = q_embs.unsqueeze(0).expand(bsize, -1, -1)
+        suffix_embs = torch.cat([action_emb, q_embs], dim=1)
+
+        suffix_len = action_len + self.config.q_dim
+        suffix_pad_masks = torch.ones(bsize, suffix_len, dtype=torch.bool, device=actions.device)
+
+        att_masks = [1] + ([0] * (action_len - 1))
+        att_masks += [1] + ([0] * (self.config.q_dim - 1))
+        suffix_att_masks = torch.tensor(att_masks, dtype=torch.bool, device=actions.device)
+        suffix_att_masks = suffix_att_masks[None, :].expand(bsize, len(att_masks))
+
+        adarms_cond = self.q_adarms_cond.to(device=actions.device, dtype=torch.float32)
+        adarms_cond = adarms_cond.unsqueeze(0).expand(bsize, -1)
+
+        return suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond
+
+    def predict_q_values(self, images, img_masks, tokens, masks, actions) -> Tensor:
+        prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, tokens, masks)
+        suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_action_q_suffix(actions)
+
+        if (
+            self.paligemma_with_expert.paligemma.language_model.layers[0].self_attn.q_proj.weight.dtype
+            == torch.bfloat16
+        ):
+            suffix_embs = suffix_embs.to(dtype=torch.bfloat16)
+            prefix_embs = prefix_embs.to(dtype=torch.bfloat16)
+
+        pad_masks = torch.cat([prefix_pad_masks, suffix_pad_masks], dim=1)
+        att_masks = torch.cat([prefix_att_masks, suffix_att_masks], dim=1)
+
+        att_2d_masks = make_att_2d_masks(pad_masks, att_masks)
+        position_ids = torch.cumsum(pad_masks, dim=1) - 1
+        att_2d_masks_4d = self._prepare_attention_masks_4d(att_2d_masks)
+
+        def forward_func(prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond):
+            (_, suffix_out), _ = self.paligemma_with_expert.forward(
+                attention_mask=att_2d_masks_4d,
+                position_ids=position_ids,
+                past_key_values=None,
+                inputs_embeds=[prefix_embs, suffix_embs],
+                use_cache=False,
+                adarms_cond=[None, adarms_cond],
+            )
+            return suffix_out
+
+        suffix_out = self._apply_checkpoint(
+            forward_func, prefix_embs, suffix_embs, att_2d_masks_4d, position_ids, adarms_cond
+        )
+        q_hidden = suffix_out[:, -self.config.q_dim :].to(dtype=torch.float32)
+        return self.q_head(q_hidden).squeeze(-1)
+
+    def forward(self, images, img_masks, tokens, masks, actions, target_q_values=None) -> Tensor:
+        predictions = self.predict_q_values(images, img_masks, tokens, masks, actions)
+        if target_q_values is None:
+            return predictions
+        return F.mse_loss(predictions, target_q_values, reduction="none")
+
+
 class PI05ValuePytorch(nn.Module):
     """PI05 variant that predicts scalar values from the shared VLM backbone."""
 
@@ -1174,7 +1353,7 @@ class PI05ValuePytorch(nn.Module):
         value_att_masks[:, 1:] = 0
         return value_embs, value_pad_masks, value_att_masks
 
-    def forward(self, images, img_masks, tokens, masks, target_values) -> Tensor:
+    def predict_values(self, images, img_masks, tokens, masks) -> Tensor:
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, tokens, masks)
         value_embs, value_pad_masks, value_att_masks = self.embed_value_tokens(
             batch_size=tokens.shape[0],
@@ -1205,7 +1384,10 @@ class PI05ValuePytorch(nn.Module):
 
         hidden_states = self._apply_checkpoint(forward_func, embs, att_2d_masks_4d, position_ids)
         value_hidden = hidden_states[:, -self.config.value_dim :].to(dtype=torch.float32)
-        predictions = self.value_head(value_hidden).squeeze(-1)
+        return self.value_head(value_hidden).squeeze(-1)
+
+    def forward(self, images, img_masks, tokens, masks, target_values) -> Tensor:
+        predictions = self.predict_values(images, img_masks, tokens, masks)
         return F.mse_loss(predictions, target_values, reduction="none")
 
 
@@ -1232,6 +1414,8 @@ class PI05Policy(PreTrainedPolicy):
         self.init_rtc_processor()
         if config.use_value_model:
             self.model = PI05ValuePytorch(config)
+        elif config.use_q_model:
+            self.model = PI05QPytorch(config)
         else:
             self.model = PI05Pytorch(config, rtc_processor=self.rtc_processor)
 
@@ -1349,6 +1533,22 @@ class PI05Policy(PreTrainedPolicy):
             bad_unexpected = [
                 key for key in unexpected_keys if not key.startswith(allowed_unexpected_prefixes)
             ]
+        elif config.use_q_model:
+            allowed_missing_prefixes = (
+                "model.q_tokens",
+                "model.q_adarms_cond",
+                "model.q_head.",
+                "model.paligemma_with_expert.paligemma.model.language_model.embed_tokens.weight",
+            )
+            allowed_unexpected_prefixes = (
+                "model.action_out_proj.",
+                "model.time_mlp_in.",
+                "model.time_mlp_out.",
+            )
+            bad_missing = [key for key in missing_keys if not key.startswith(allowed_missing_prefixes)]
+            bad_unexpected = [
+                key for key in unexpected_keys if not key.startswith(allowed_unexpected_prefixes)
+            ]
         else:
             bad_missing = [
                 key
@@ -1437,7 +1637,7 @@ class PI05Policy(PreTrainedPolicy):
         """Initialize RTC processor if RTC is enabled in config."""
         self.rtc_processor = None
 
-        if self.config.use_value_model:
+        if self.config.use_value_model or self.config.use_q_model:
             return
 
         # Create processor if config provided
@@ -1526,8 +1726,8 @@ class PI05Policy(PreTrainedPolicy):
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor]) -> Tensor:
         """Select a single action given environment observations."""
-        if self.config.use_value_model:
-            raise NotImplementedError("The PI05 value model does not support action selection.")
+        if self.config.use_value_model or self.config.use_q_model:
+            raise NotImplementedError("PI05 scalar prediction models do not support action selection.")
         assert not self._rtc_enabled(), (
             "RTC is not supported for select_action, use it with predict_action_chunk"
         )
@@ -1545,8 +1745,8 @@ class PI05Policy(PreTrainedPolicy):
     @torch.no_grad()
     def predict_action_chunk(self, batch: dict[str, Tensor], **kwargs: Unpack[ActionSelectKwargs]) -> Tensor:
         """Predict a chunk of actions given environment observations."""
-        if self.config.use_value_model:
-            raise NotImplementedError("The PI05 value model does not support action chunk prediction.")
+        if self.config.use_value_model or self.config.use_q_model:
+            raise NotImplementedError("PI05 scalar prediction models do not support action chunk prediction.")
         self.eval()
 
         # Prepare inputs
@@ -1561,6 +1761,61 @@ class PI05Policy(PreTrainedPolicy):
         actions = actions[:, :, :original_action_dim]
 
         return actions
+
+    @torch.no_grad()
+    def predict_q_values(self, batch: dict[str, Tensor]) -> Tensor:
+        """Predict Q-values for the action chunk in the batch."""
+        if not self.config.use_q_model:
+            raise NotImplementedError("predict_q_values is only supported when use_q_model is enabled.")
+        self.eval()
+
+        images, img_masks = self._preprocess_images(batch)
+        tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
+        actions = self.prepare_action(batch)
+
+        return self.model.predict_q_values(images, img_masks, tokens, masks, actions)
+
+    @staticmethod
+    def _get_reward_values(batch: dict[str, Tensor]) -> Tensor | None:
+        for reward_key in ("reward", REWARD):
+            if reward_key in batch:
+                return batch[reward_key].to(dtype=torch.float32)
+        return None
+
+    def _build_scalar_prediction_log(
+        self,
+        *,
+        kind: str,
+        target_key: str,
+        predictions: Tensor,
+        targets: Tensor,
+        batch: dict[str, Tensor],
+    ) -> dict:
+        predictions = predictions.detach()
+        targets = targets.detach()
+        abs_error = (predictions - targets).abs()
+
+        log_dict = {
+            "iql_prediction_mean": predictions.mean().item(),
+            "iql_target_mean": targets.mean().item(),
+            "iql_abs_error_mean": abs_error.mean().item(),
+            f"{kind}_prediction_mean": predictions.mean().item(),
+            f"{kind}_target_mean": targets.mean().item(),
+            f"{kind}_abs_error_mean": abs_error.mean().item(),
+            "_iql_prediction_kind": kind,
+            "_iql_target_key": target_key,
+            "_iql_predictions": predictions,
+            "_iql_targets": targets,
+        }
+
+        reward_values = self._get_reward_values(batch)
+        if reward_values is not None:
+            reward_values = reward_values.detach()
+            log_dict["iql_reward_mean"] = reward_values.mean().item()
+            log_dict[f"{kind}_reward_mean"] = reward_values.mean().item()
+            log_dict["_iql_rewards"] = reward_values
+
+        return log_dict
 
     def forward(self, batch: dict[str, Tensor], reduction: str = "mean") -> tuple[Tensor, dict]:
         """Run the batch through the model and compute the loss for training.
@@ -1590,10 +1845,52 @@ class PI05Policy(PreTrainedPolicy):
                     f"{self.config.value_dim}, got {tuple(values.shape)}"
                 )
 
-            losses = self.model.forward(images, img_masks, tokens, masks, values)
-            loss_dict = {
-                "loss_per_dim": losses.mean(dim=0).detach().cpu().numpy().tolist(),
-            }
+            predictions = self.model.predict_values(images, img_masks, tokens, masks)
+            losses = F.mse_loss(predictions, values, reduction="none")
+            loss_dict = self._build_scalar_prediction_log(
+                kind="value",
+                target_key=self.config.value_key,
+                predictions=predictions,
+                targets=values,
+                batch=batch,
+            )
+            loss_dict["loss_per_dim"] = losses.mean(dim=0).detach().cpu().numpy().tolist()
+
+            if reduction == "none":
+                per_sample_loss = losses.mean(dim=1)
+                loss_dict["loss"] = per_sample_loss.mean().item()
+                return per_sample_loss, loss_dict
+
+            loss = losses.mean()
+            loss_dict["loss"] = loss.item()
+            return loss, loss_dict
+
+        if self.config.use_q_model:
+            if self.config.q_key not in batch:
+                raise KeyError(
+                    f"Expected Q target key '{self.config.q_key}' in batch, "
+                    f"but available keys are: {sorted(batch.keys())}"
+                )
+            q_values = batch[self.config.q_key].to(device=tokens.device, dtype=torch.float32)
+            if q_values.ndim == 1:
+                q_values = q_values.unsqueeze(-1)
+            if q_values.shape[-1] != self.config.q_dim:
+                raise ValueError(
+                    f"Expected batch['{self.config.q_key}'] to have last dimension "
+                    f"{self.config.q_dim}, got {tuple(q_values.shape)}"
+                )
+
+            actions = self.prepare_action(batch)
+            predictions = self.model.predict_q_values(images, img_masks, tokens, masks, actions)
+            losses = F.mse_loss(predictions, q_values, reduction="none")
+            loss_dict = self._build_scalar_prediction_log(
+                kind="q",
+                target_key=self.config.q_key,
+                predictions=predictions,
+                targets=q_values,
+                batch=batch,
+            )
+            loss_dict["loss_per_dim"] = losses.mean(dim=0).detach().cpu().numpy().tolist()
 
             if reduction == "none":
                 per_sample_loss = losses.mean(dim=1)
@@ -1632,6 +1929,15 @@ class PI05Policy(PreTrainedPolicy):
         """Return default PEFT target modules for PI0.5 fine-tuning."""
         if self.config.use_value_model:
             target_modules = r"(.*\.paligemma_backbone\..*\.self_attn\.(q|v)_proj|model\.value_head\..*)"
+            return {
+                "target_modules": target_modules,
+                "modules_to_save": [],
+            }
+        if self.config.use_q_model:
+            common_projections = "action_in_proj|q_head"
+            target_modules = (
+                rf"(.*\.gemma_expert\..*\.self_attn\.(q|v)_proj|model\.({common_projections})\..*)"
+            )
             return {
                 "target_modules": target_modules,
                 "modules_to_save": [],
