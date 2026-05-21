@@ -9,7 +9,7 @@ POLICY_SERVER_OBS_QUEUE_TIMEOUT="${POLICY_SERVER_OBS_QUEUE_TIMEOUT:-2}"
 
 export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH:-}"
 
-python -m cProfile -o asdf.log -m lerobot.async_inference.policy_server \
+python -m lerobot.async_inference.policy_server \
   --host="${POLICY_SERVER_HOST}" \
   --port="${POLICY_SERVER_PORT}" \
   --fps="${POLICY_SERVER_FPS}" \
