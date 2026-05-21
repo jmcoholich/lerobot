@@ -133,6 +133,9 @@ class FrankaRobot(Robot):
         pass
 
     def send_action(self, action) -> None:
+        if self.debug:
+            print(action)
+            return
         done = action.get("done", 0.0)
         joint_action = [action[f"joint{i}"] for i in range(1, 8)]
         self.operator.arm_control(action=joint_action, gripper_cmd=action["gripper_cmd"], done=done, done_threshold=DONE_THRESHOLD)
@@ -214,4 +217,8 @@ class FrankaRobot(Robot):
                 joint_torques = self.operator.robot_interface.last_tau_ext_hat_filtered.tolist()
                 for i, tau in enumerate(joint_torques):
                     obs_dict[f"joint{i+1}_tau"] = tau
+            # save obs_dict to pkl for debugging
+            # with open("src/lerobot/robots/franka/dummy_obs_dict.pkl", "wb") as f:
+            #     pickle.dump(obs_dict, f)
+            # sys.exit(0)
         return obs_dict
