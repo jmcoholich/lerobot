@@ -5,9 +5,15 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
 
 # Configuration
-REPO_ID = "lerobot/skywalker_partial_success"
-DATASET_NAME = "skywalker_partial_success"
-ORIG_DATASET_PATH = Path("/data3/extracted_data/skywalker_partial_success/h5_files")
+REPO_ID = "lerobot/thread3_dagger_only"
+DATASET_NAME = "thread3_dagger_only"
+ORIG_DATASET_PATHS = (
+    # Path("/home/jeremiah/openteach/extracted_data/thread3/h5_files"),
+    # Path("/home/jeremiah/openteach/extracted_data/unthread4/h5_files"),
+    Path("/data3/extracted_data/thread3_rollouts_w_dagger/dagger_only_h5_files"),
+    # Path("/data3/extracted_data/unthread4_rollouts_w_dagger/full_rollout_h5_files"),
+)
+
 FPS = 20
 ROOT_DIR = Path(f"/data3/lerobot_data/{DATASET_NAME}")  # Where the dataset will be created locally
 
@@ -58,8 +64,8 @@ def main():
     )
 
     # 2. Iterate over all HDF5 files in the directory
-    h5_files = sorted(f for f in ORIG_DATASET_PATH.glob("*.h5") if not "unplug" in f.name)
-    print(f"Found {len(h5_files)} episodes in {ORIG_DATASET_PATH}")
+    h5_files = sorted(h5_path for dataset_path in ORIG_DATASET_PATHS for h5_path in dataset_path.glob("*.h5"))
+    print(f"Found {len(h5_files)} episodes in {len(ORIG_DATASET_PATHS)} directories")
     # print all file names
     print("Files:")
     for f in h5_files:
@@ -121,12 +127,10 @@ def main():
 
 
 def get_task_instructions(fname):
-    return "Plug the charger into the power strip"
-    # if "rev" in fname:
-    #     return "Unplug the charger"
-    # else:
-    #     assert "fwd" in fname
-    #     return "Plug the charger into the power strip"
+    if "unthread4" in fname:
+        return "Unscrew the nut and set it on the table"
+    else:
+        return "Thread the nut onto the bolt"
 
 
 if __name__ == "__main__":
