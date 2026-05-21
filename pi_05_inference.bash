@@ -1,3 +1,7 @@
+# Plug the charger into the power strip
+# Unplug the charger
+# Unscrew the nut and set it on the table
+# Thread the nut onto the bolt
 rm -rf /home/jeremiah/.cache/huggingface/lerobot/dummy
 
 RECORD_NAME="${1:-last_recording}"
@@ -17,7 +21,7 @@ python src/lerobot/scripts/lerobot_record.py \
   --dataset.num_episodes=1 \
   --policy.dtype=bfloat16 \
   --policy.n_action_steps=100 \
-  --policy.path=/home/jeremiah/lerobot/outputs/plug3/checkpoints/006000/pretrained_model
+  --policy.path=/home/jeremiah/lerobot/outputs/unplug3_bc_and_dagger/checkpoints/003000/pretrained_model
   # --policy.path=/home/jeremiah/lerobot/outputs/plug3_unplug3_bc_and_dagger_12k_4GPU_double_lr/checkpoints/006000/pretrained_model
   # --policy.path=/home/jeremiah/lerobot/outputs/thread3_unthread4_bc_and_dagger_12k_4GPU_double_lr/checkpoints/003000/pretrained_model
   # --dataset.single_task="Plug the charger into the power strip" \

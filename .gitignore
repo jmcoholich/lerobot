@@ -17,6 +17,7 @@ outputs
 eval_logs/
 extracted_data
 .codex
+*.prof
 prompting_experiments/
 input_args_0.pkl
 input_args_1.pkl
