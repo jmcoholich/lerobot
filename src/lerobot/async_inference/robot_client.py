@@ -45,22 +45,13 @@ from pprint import pformat
 from queue import Queue
 from typing import Any
 
-import draccus
 import grpc
 import torch
 
 from lerobot.configs import parser
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig  # noqa: F401
 from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig  # noqa: F401
-from lerobot.robots import (  # noqa: F401
-    Robot,
-    RobotConfig,
-    bi_so_follower,
-    koch_follower,
-    make_robot_from_config,
-    omx_follower,
-    so_follower,
-)
+from lerobot.robots.utils import make_robot_from_config
 from lerobot.transport import (
     services_pb2,  # type: ignore
     services_pb2_grpc,  # type: ignore
@@ -84,7 +75,12 @@ from .helpers import (
 
 
 ROBOT_CONFIG_MODULES = {
+    "bi_so_follower": "lerobot.robots.bi_so_follower.config_bi_so_follower",
     "franka": "lerobot.robots.franka.franka_config",
+    "koch_follower": "lerobot.robots.koch_follower.config_koch_follower",
+    "omx_follower": "lerobot.robots.omx_follower.config_omx_follower",
+    "so100_follower": "lerobot.robots.so_follower.config_so_follower",
+    "so101_follower": "lerobot.robots.so_follower.config_so_follower",
 }
 
 
@@ -512,7 +508,7 @@ class RobotClient:
         return _captured_observation, _performed_action
 
 
-@draccus.wrap()
+@parser.wrap()
 def async_client(cfg: RobotClientConfig):
     logging.info(pformat(asdict(cfg)))
 
