@@ -14,6 +14,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import torch
 
@@ -132,6 +133,18 @@ class RobotClientConfig:
             "help": "Device to move actions to after receiving from server (e.g., for downstream planners)"
         },
     )
+    policy_config_overrides: list[str] = field(
+        default_factory=list,
+        metadata={"help": "Advanced config overrides forwarded to the remote policy loader."},
+    )
+    policy_dtype: str | None = field(
+        default=None,
+        metadata={"help": "Optional policy dtype override, e.g. bfloat16 for pi05."},
+    )
+    policy_n_action_steps: int | None = field(
+        default=None,
+        metadata={"help": "Optional policy n_action_steps override."},
+    )
 
     # Control behavior configuration
     chunk_size_threshold: float = field(default=0.5, metadata={"help": "Threshold for chunk size control"})
@@ -179,6 +192,13 @@ class RobotClientConfig:
         if self.actions_per_chunk <= 0:
             raise ValueError(f"actions_per_chunk must be positive, got {self.actions_per_chunk}")
 
+        self.policy_config_overrides = list(self.policy_config_overrides)
+        if self.policy_dtype is not None:
+            self.policy_config_overrides.append(f"--dtype={self.policy_dtype}")
+
+        if self.policy_n_action_steps is not None:
+            self.policy_config_overrides.append(f"--n_action_steps={self.policy_n_action_steps}")
+
         self.aggregate_fn = get_aggregate_function(self.aggregate_fn_name)
 
     @classmethod
@@ -186,7 +206,7 @@ class RobotClientConfig:
         """Create a RobotClientConfig from a dictionary."""
         return cls(**config_dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the configuration to a dictionary."""
         return {
             "server_address": self.server_address,
@@ -194,6 +214,9 @@ class RobotClientConfig:
             "pretrained_name_or_path": self.pretrained_name_or_path,
             "policy_device": self.policy_device,
             "client_device": self.client_device,
+            "policy_config_overrides": self.policy_config_overrides,
+            "policy_dtype": self.policy_dtype,
+            "policy_n_action_steps": self.policy_n_action_steps,
             "chunk_size_threshold": self.chunk_size_threshold,
             "fps": self.fps,
             "actions_per_chunk": self.actions_per_chunk,

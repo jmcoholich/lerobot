@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -e
+
+POLICY_SERVER_HOST="${POLICY_SERVER_HOST:-0.0.0.0}"
+POLICY_SERVER_PORT="${POLICY_SERVER_PORT:-8080}"
+POLICY_SERVER_FPS="${POLICY_SERVER_FPS:-30}"
+POLICY_SERVER_INFERENCE_LATENCY="${POLICY_SERVER_INFERENCE_LATENCY:-0.033}"
+POLICY_SERVER_OBS_QUEUE_TIMEOUT="${POLICY_SERVER_OBS_QUEUE_TIMEOUT:-2}"
+
+export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH:-}"
+
+python -m cProfile -o asdf.log -m lerobot.async_inference.policy_server \
+  --host="${POLICY_SERVER_HOST}" \
+  --port="${POLICY_SERVER_PORT}" \
+  --fps="${POLICY_SERVER_FPS}" \
+  --inference_latency="${POLICY_SERVER_INFERENCE_LATENCY}" \
+  --obs_queue_timeout="${POLICY_SERVER_OBS_QUEUE_TIMEOUT}"

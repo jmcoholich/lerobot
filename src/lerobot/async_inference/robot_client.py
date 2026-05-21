@@ -33,8 +33,10 @@ python src/lerobot/async_inference/robot_client.py \
 ```
 """
 
+import importlib
 import logging
 import pickle  # nosec
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -47,6 +49,7 @@ import draccus
 import grpc
 import torch
 
+from lerobot.configs import parser
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig  # noqa: F401
 from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig  # noqa: F401
 from lerobot.robots import (  # noqa: F401
@@ -80,6 +83,18 @@ from .helpers import (
 )
 
 
+ROBOT_CONFIG_MODULES = {
+    "franka": "lerobot.robots.franka.franka_config",
+}
+
+
+def _import_cli_selected_config_modules() -> None:
+    """Import config modules that are optional or project-specific."""
+    robot_type = parser.get_type_arg("robot", sys.argv[1:])
+    if robot_type in ROBOT_CONFIG_MODULES:
+        importlib.import_module(ROBOT_CONFIG_MODULES[robot_type])
+
+
 class RobotClient:
     prefix = "robot_client"
     logger = get_logger(prefix)
@@ -101,11 +116,12 @@ class RobotClient:
         self.server_address = config.server_address
 
         self.policy_config = RemotePolicyConfig(
-            config.policy_type,
-            config.pretrained_name_or_path,
-            lerobot_features,
-            config.actions_per_chunk,
-            config.policy_device,
+            policy_type=config.policy_type,
+            pretrained_name_or_path=config.pretrained_name_or_path,
+            lerobot_features=lerobot_features,
+            actions_per_chunk=config.actions_per_chunk,
+            device=config.policy_device,
+            policy_config_overrides=config.policy_config_overrides,
         )
         self.channel = grpc.insecure_channel(
             self.server_address, grpc_channel_options(initial_backoff=f"{config.environment_dt:.4f}s")
@@ -125,6 +141,8 @@ class RobotClient:
         self.action_queue = Queue()
         self.action_queue_lock = threading.Lock()  # Protect queue operations
         self.action_queue_size = []
+        self.sent_observations = 0
+        self.received_action_chunks = 0
         self.start_barrier = threading.Barrier(2)  # 2 threads: action receiver, control loop
 
         # FPS measurement
@@ -206,12 +224,16 @@ class RobotClient:
             )
             _ = self.stub.SendObservations(observation_iterator)
             obs_timestep = obs.get_timestep()
+            self.sent_observations += 1
+            if self.sent_observations == 1:
+                print(f"[robot_client] Sent first observation #{obs_timestep} to policy server", flush=True)
             self.logger.debug(f"Sent observation #{obs_timestep} | ")
 
             return True
 
         except grpc.RpcError as e:
             self.logger.error(f"Error sending observation #{obs.get_timestep()}: {e}")
+            print(f"[robot_client] Error sending observation #{obs.get_timestep()}: {e}", file=sys.stderr, flush=True)
             return False
 
     def _inspect_action_queue(self):
@@ -302,6 +324,12 @@ class RobotClient:
                     self.logger.debug(f"Actions kept on device: {client_device}")
 
                 self.action_chunk_size = max(self.action_chunk_size, len(timed_actions))
+                self.received_action_chunks += 1
+                if self.received_action_chunks == 1:
+                    print(
+                        f"[robot_client] Received first action chunk with {len(timed_actions)} actions",
+                        flush=True,
+                    )
 
                 # Calculate network latency if we have matching observations
                 if len(timed_actions) > 0 and verbose:
@@ -403,6 +431,8 @@ class RobotClient:
     def _ready_to_send_observation(self):
         """Flags when the client is ready to send an observation"""
         with self.action_queue_lock:
+            if self.action_chunk_size <= 0:
+                return self.action_queue.empty()
             return self.action_queue.qsize() / self.action_chunk_size <= self._chunk_size_threshold
 
     def control_loop_observation(self, task: str, verbose: bool = False) -> RawObservation:
@@ -453,7 +483,8 @@ class RobotClient:
             return raw_observation
 
         except Exception as e:
-            self.logger.error(f"Error in observation sender: {e}")
+            self.logger.exception(f"Error in observation sender: {e}")
+            print(f"[robot_client] Error in observation sender: {e}", file=sys.stderr, flush=True)
 
     def control_loop(self, task: str, verbose: bool = False) -> tuple[Observation, Action]:
         """Combined function for executing actions and streaming observations"""
@@ -511,5 +542,10 @@ def async_client(cfg: RobotClientConfig):
             client.logger.info("Client stopped")
 
 
+def main():
+    _import_cli_selected_config_modules()
+    async_client()
+
+
 if __name__ == "__main__":
-    async_client()  # run the client
+    main()

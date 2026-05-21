@@ -38,6 +38,7 @@ import draccus
 import grpc
 import torch
 
+from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies.factory import get_policy_class, make_pre_post_processors
 from lerobot.processor import (
     PolicyAction,
@@ -89,6 +90,7 @@ class PolicyServer(services_pb2_grpc.AsyncInferenceServicer):
         self.policy = None
         self.preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]] | None = None
         self.postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction] | None = None
+        self._loaded_policy_key = None
 
     @property
     def running(self):
@@ -106,6 +108,24 @@ class PolicyServer(services_pb2_grpc.AsyncInferenceServicer):
 
         with self._predicted_timesteps_lock:
             self._predicted_timesteps = set()
+
+        self.last_processed_obs = None
+
+    @staticmethod
+    def _policy_cache_key(policy_specs: RemotePolicyConfig) -> tuple[Any, ...]:
+        """Return the parts of policy setup that require reloading GPU weights."""
+        return (
+            policy_specs.policy_type,
+            str(policy_specs.pretrained_name_or_path),
+            policy_specs.device,
+            tuple(policy_specs.policy_config_overrides),
+            tuple(sorted(policy_specs.rename_map.items())),
+        )
+
+    def _reset_policy_state(self) -> None:
+        for component in (self.policy, self.preprocessor, self.postprocessor):
+            if component is not None and hasattr(component, "reset"):
+                component.reset()
 
     def Ready(self, request, context):  # noqa: N802
         client_id = context.peer()
@@ -148,10 +168,26 @@ class PolicyServer(services_pb2_grpc.AsyncInferenceServicer):
         self.lerobot_features = policy_specs.lerobot_features
         self.actions_per_chunk = policy_specs.actions_per_chunk
 
+        policy_key = self._policy_cache_key(policy_specs)
+        if self.policy is not None and self._loaded_policy_key == policy_key:
+            self.logger.info(
+                f"Reusing cached policy on {self.device}: {policy_specs.pretrained_name_or_path}"
+            )
+            self._reset_policy_state()
+            return services_pb2.Empty()
+
         policy_class = get_policy_class(self.policy_type)
 
         start = time.perf_counter()
-        self.policy = policy_class.from_pretrained(policy_specs.pretrained_name_or_path)
+        policy_config = PreTrainedConfig.from_pretrained(
+            policy_specs.pretrained_name_or_path,
+            cli_overrides=policy_specs.policy_config_overrides,
+        )
+        policy_config.device = self.device
+        self.policy = policy_class.from_pretrained(
+            policy_specs.pretrained_name_or_path,
+            config=policy_config,
+        )
         self.policy.to(self.device)
 
         # Load preprocessor and postprocessor, overriding device to match requested device
@@ -167,6 +203,8 @@ class PolicyServer(services_pb2_grpc.AsyncInferenceServicer):
         )
 
         end = time.perf_counter()
+        self._loaded_policy_key = policy_key
+        self._reset_policy_state()
 
         self.logger.info(f"Time taken to put policy on {self.device}: {end - start:.4f} seconds")
 
