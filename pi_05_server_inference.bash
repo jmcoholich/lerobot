@@ -1,45 +1,104 @@
 #!/usr/bin/env bash
 set -e
 
-# Plug the charger into the power strip
-# Unplug the charger
-# Unscrew the nut and set it on the table
-# Thread the nut onto the bolt
+usage() {
+  cat <<'EOF'
+Usage: bash pi_05_server_inference.bash --prompt TEXT --name POLICY_NAME [options]
 
-RECORD_NAME="${1:-last_recording}"
+Options:
+  --port PORT           Policy server port on localhost (default: 8080)
+  --prompt TEXT         Task prompt to pass as --task (required)
+  --record NAME         Recording name (default: last_recording)
+  --name POLICY_NAME    Policy output directory name under outputs/ (required)
+  --checkpoint STEP     Checkpoint step number (default: 3000)
+  --n-action-steps N    Policy n_action_steps override (default: 100)
+  --help                Show this help message
+EOF
+}
 
-POLICY_SERVER_ADDRESS="${POLICY_SERVER_ADDRESS:-127.0.0.1:8080}"
-POLICY_PATH="${POLICY_PATH:-/home/jeremiah/lerobot/outputs/unplug3_bc_and_dagger/checkpoints/003000/pretrained_model}"
-TASK="${TASK:-Unplug the charger}"
-POLICY_DEVICE="${POLICY_DEVICE:-cuda}"
-CLIENT_DEVICE="${CLIENT_DEVICE:-cpu}"
-INFERENCE_FPS="${INFERENCE_FPS:-30}"
-ACTIONS_PER_CHUNK="${ACTIONS_PER_CHUNK:-100}"
-CHUNK_SIZE_THRESHOLD="${CHUNK_SIZE_THRESHOLD:-0.5}"
-AGGREGATE_FN_NAME="${AGGREGATE_FN_NAME:-weighted_average}"
-POLICY_DTYPE="${POLICY_DTYPE:-bfloat16}"
-POLICY_N_ACTION_STEPS="${POLICY_N_ACTION_STEPS:-100}"
+PORT="8080"
+PROMPT=""
+RECORD="last_recording"
+NAME=""
+CHECKPOINT="3000"
+N_ACTION_STEPS="100"
 
-export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH:-}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --prompt)
+      PROMPT="$2"
+      shift 2
+      ;;
+    --record)
+      RECORD="$2"
+      shift 2
+      ;;
+    --name)
+      NAME="$2"
+      shift 2
+      ;;
+    --checkpoint)
+      CHECKPOINT="$2"
+      shift 2
+      ;;
+    --n-action-steps)
+      N_ACTION_STEPS="$2"
+      shift 2
+      ;;
+    --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "${PROMPT}" ]]; then
+  echo "Missing required argument: --prompt" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ -z "${NAME}" ]]; then
+  echo "Missing required argument: --name" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ ! "${CHECKPOINT}" =~ ^[0-9]+$ ]]; then
+  echo "--checkpoint must be a step number, got: ${CHECKPOINT}" >&2
+  exit 1
+fi
+
+if [[ ! "${N_ACTION_STEPS}" =~ ^[0-9]+$ ]]; then
+  echo "--n-action-steps must be a number, got: ${N_ACTION_STEPS}" >&2
+  exit 1
+fi
+
+CHECKPOINT_DIR="$(printf "%06d" "${CHECKPOINT}")"
+POLICY_PATH="/home/jeremiah/lerobot/outputs/${NAME}/checkpoints/${CHECKPOINT_DIR}/pretrained_model"
 
 python -m lerobot.async_inference.robot_client \
-  --server_address="${POLICY_SERVER_ADDRESS}" \
+  --server_address="localhost:${PORT}" \
   --robot.type=franka \
   --robot.id=franka \
   --robot.port=dummy \
-  --robot.record="${RECORD_NAME}" \
-  --task="${TASK}" \
+  --robot.record="${RECORD}" \
+  --task="${PROMPT}" \
   --policy_type=pi05 \
   --pretrained_name_or_path="${POLICY_PATH}" \
-  --policy_device="${POLICY_DEVICE}" \
-  --client_device="${CLIENT_DEVICE}" \
-  --fps="${INFERENCE_FPS}" \
-  --actions_per_chunk="${ACTIONS_PER_CHUNK}" \
-  --chunk_size_threshold="${CHUNK_SIZE_THRESHOLD}" \
-  --aggregate_fn_name="${AGGREGATE_FN_NAME}" \
-  --policy_dtype="${POLICY_DTYPE}" \
-  --policy_n_action_steps="${POLICY_N_ACTION_STEPS}"
-
-# Alternate checkpoints:
-# POLICY_PATH=/home/jeremiah/lerobot/outputs/plug3_unplug3_bc_and_dagger_12k_4GPU_double_lr/checkpoints/006000/pretrained_model bash pi_05_inference.bash
-# POLICY_PATH=/home/jeremiah/lerobot/outputs/thread3_unthread4_bc_and_dagger_12k_4GPU_double_lr/checkpoints/003000/pretrained_model bash pi_05_inference.bash
+  --policy_device=cuda \
+  --client_device=cpu \
+  --actions_per_chunk=100 \
+  --chunk_size_threshold=0.95 \
+  --aggregate_fn_name=weighted_average \
+  --policy_dtype=bfloat16 \
+  --policy_n_action_steps="${N_ACTION_STEPS}"
