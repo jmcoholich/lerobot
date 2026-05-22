@@ -126,7 +126,7 @@ class FrankaRobot(Robot):
             "joint6": float,
             "joint7": float,
             "gripper_cmd": float,
-            # "done": float,
+            "done": float,
         }
 
     def configure(self) -> None:
@@ -138,7 +138,12 @@ class FrankaRobot(Robot):
             return
         done = action.get("done", 0.0)
         joint_action = [action[f"joint{i}"] for i in range(1, 8)]
-        self.operator.arm_control(action=joint_action, gripper_cmd=action["gripper_cmd"], done=done, done_threshold=DONE_THRESHOLD)
+        # binarize gripper commands
+        if action["gripper_cmd"] < 0.0:
+            gripper_cmd = -1.0
+        else:
+            gripper_cmd = 1.0
+        self.operator.arm_control(action=joint_action, gripper_cmd=gripper_cmd, done=done, done_threshold=DONE_THRESHOLD)
     #     if DELTA_JOINT_ACTIONS:
     #         self.send_delta_joint_action(action)
     #     elif JOINT_ACTIONS:

@@ -8,16 +8,18 @@ Then just alternate between these two commands:
 
 ```
 bash pi_05_server_inference.bash \
-  --prompt "Unplug the charger" \
+  --prompt "Plug the charger into the power strip" \
   --name plug3_bc_and_dagger \
   --checkpoint 3000 \
   --port 8080 \
   --record "name of recording"
 
 bash pi_05_server_inference.bash \
-  --prompt "Plug the charger into the power strip" \
-  --name unplug3_bc_and_dagger \
+  --prompt "Unplug the charger" \
+  --name plug3_bc_and_dagger \
   --checkpoint 3000 \
   --port 8081 \
   --record "name of recording"
+
+
 ```
