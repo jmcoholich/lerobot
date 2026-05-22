@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -e
-
+set -m
+export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH}"
 usage() {
   cat <<'EOF'
 Usage: bash pi_05_server_inference.bash --prompt TEXT --name POLICY_NAME [options]
@@ -86,6 +87,33 @@ fi
 CHECKPOINT_DIR="$(printf "%06d" "${CHECKPOINT}")"
 POLICY_PATH="/home/jeremiah/lerobot/outputs/${NAME}/checkpoints/${CHECKPOINT_DIR}/pretrained_model"
 
+DATA_PID=""
+ROBOT_CLIENT_PID=""
+
+stop_children() {
+  trap - INT
+
+  echo
+  echo "Stopping robot_client..."
+  [[ -n "${ROBOT_CLIENT_PID}" ]] && kill -INT -- "-${ROBOT_CLIENT_PID}" 2>/dev/null || true
+
+  echo "Stopping data_collect.py..."
+  [[ -n "${DATA_PID}" ]] && kill -INT -- "-${DATA_PID}" 2>/dev/null || true
+
+  [[ -n "${ROBOT_CLIENT_PID}" ]] && wait "${ROBOT_CLIENT_PID}" 2>/dev/null || true
+  [[ -n "${DATA_PID}" ]] && wait "${DATA_PID}" 2>/dev/null || true
+  exit 130
+}
+
+trap stop_children INT
+
+echo "Starting data_collect.py..."
+bash -c 'exec python "$@"' bash /home/jeremiah/openteach/data_collect.py robot=franka demo_num="${RECORD}" &
+DATA_PID=$!
+
+sleep 0.2
+
+echo "Starting robot_client..."
 python -m lerobot.async_inference.robot_client \
   --server_address="localhost:${PORT}" \
   --robot.type=franka \
@@ -101,4 +129,20 @@ python -m lerobot.async_inference.robot_client \
   --chunk_size_threshold=0.95 \
   --aggregate_fn_name=weighted_average \
   --policy_dtype=bfloat16 \
-  --policy_n_action_steps="${N_ACTION_STEPS}"
+  --policy_n_action_steps="${N_ACTION_STEPS}" &
+ROBOT_CLIENT_PID=$!
+
+echo "Started:"
+echo "  data_collect.py PID: ${DATA_PID}"
+echo "  robot_client    PID: ${ROBOT_CLIENT_PID}"
+
+set +e
+wait "${ROBOT_CLIENT_PID}"
+ROBOT_CLIENT_STATUS=$?
+set -e
+
+echo "Stopping data_collect.py..."
+kill -INT -- "-${DATA_PID}" 2>/dev/null || true
+wait "${DATA_PID}" 2>/dev/null || true
+
+exit "${ROBOT_CLIENT_STATUS}"
