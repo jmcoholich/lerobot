@@ -126,8 +126,8 @@ python -m lerobot.async_inference.robot_client \
   --policy_device=cuda \
   --client_device=cpu \
   --actions_per_chunk=100 \
-  --chunk_size_threshold=0.95 \
-  --aggregate_fn_name=weighted_average \
+  --chunk_size_threshold=0.0 \
+  --aggregate_fn_name=latest_only \
   --policy_dtype=bfloat16 \
   --policy_n_action_steps="${N_ACTION_STEPS}" &
 ROBOT_CLIENT_PID=$!
