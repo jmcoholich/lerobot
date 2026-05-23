@@ -5,9 +5,9 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
 
 # Configuration
-REPO_ID = "lerobot/skywalker_partial_success"
-DATASET_NAME = "skywalker_partial_success"
-ORIG_DATASET_PATH = Path("/data3/extracted_data/skywalker_partial_success/h5_files")
+REPO_ID = "lerobot/walle_partial_success"
+DATASET_NAME = "walle_partial_success"
+ORIG_DATASET_PATH = Path("/data3/extracted_data/walle/walle_partial_success/h5_files")
 FPS = 20
 ROOT_DIR = Path(f"/data3/lerobot_data/{DATASET_NAME}")  # Where the dataset will be created locally
 
@@ -58,7 +58,7 @@ def main():
     )
 
     # 2. Iterate over all HDF5 files in the directory
-    h5_files = sorted(f for f in ORIG_DATASET_PATH.glob("*.h5") if not "unplug" in f.name)
+    h5_files = sorted(f for f in ORIG_DATASET_PATH.glob("*.h5"))
     print(f"Found {len(h5_files)} episodes in {ORIG_DATASET_PATH}")
     # print all file names
     print("Files:")

@@ -4,15 +4,15 @@ from pathlib import Path
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
 
-LAST_N_FRAMES_DONE = 40
+LAST_N_FRAMES_DONE = 1
 # Configuration
-REPO_ID = f"lerobot/plug3_bc_and_dagger_w_done_{LAST_N_FRAMES_DONE}"
-DATASET_NAME = f"plug3_bc_and_dagger_w_done_{LAST_N_FRAMES_DONE}"
+REPO_ID = f"lerobot/unplug3_bc_and_dagger_w_done_{LAST_N_FRAMES_DONE}"
+DATASET_NAME = f"unplug3_bc_and_dagger_w_done_{LAST_N_FRAMES_DONE}"
 ORIG_DATASET_PATHS = (
-    Path("/home/jeremiah/openteach/extracted_data/plug3/h5_files"),
-    # Path("/home/jeremiah/openteach/extracted_data/plug3/h5_files"),
-    # Path("/data3/extracted_data/plug3_rollouts_w_dagger/full_rollout_h5_files"),
-    Path("/data3/extracted_data/plug3_rollouts_w_dagger/full_rollout_h5_files"),
+    Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
+    # Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
+    # Path("/data3/extracted_data/unplug3_rollouts_w_dagger/full_rollout_h5_files"),
+    Path("/data3/extracted_data/unplug3_rollouts_w_dagger/full_rollout_h5_files"),
 )
 
 FPS = 20
@@ -136,6 +136,7 @@ def get_task_instructions(fname):
     if "unplug3" in fname:
         return "Unplug the charger"
     else:
+        assert False
         return "Plug the charger into the power strip"
 
 
