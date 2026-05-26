@@ -12,7 +12,8 @@ Options:
   --record NAME         Recording name (default: last_recording)
   --name POLICY_NAME    Policy output directory name under outputs/ (required)
   --checkpoint STEP     Checkpoint step number (default: 3000)
-  --n-action-steps N    Policy n_action_steps override (default: 100)
+  --chunk-size N        Action chunk size (default: 100)
+  --n-action-steps N    Policy n_action_steps override (default: chunk size)
   --help                Show this help message
 EOF
 }
@@ -22,7 +23,8 @@ PROMPT=""
 RECORD="last_recording"
 NAME=""
 CHECKPOINT="3000"
-N_ACTION_STEPS="100"
+CHUNK_SIZE="100"
+N_ACTION_STEPS=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +46,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --checkpoint)
       CHECKPOINT="$2"
+      shift 2
+      ;;
+    --chunk-size)
+      CHUNK_SIZE="$2"
       shift 2
       ;;
     --n-action-steps)
@@ -79,9 +85,18 @@ if [[ ! "${CHECKPOINT}" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-if [[ ! "${N_ACTION_STEPS}" =~ ^[0-9]+$ ]]; then
+if [[ -n "${N_ACTION_STEPS}" && ! "${N_ACTION_STEPS}" =~ ^[0-9]+$ ]]; then
   echo "--n-action-steps must be a number, got: ${N_ACTION_STEPS}" >&2
   exit 1
+fi
+
+if [[ ! "${CHUNK_SIZE}" =~ ^[0-9]+$ ]]; then
+  echo "--chunk-size must be a number, got: ${CHUNK_SIZE}" >&2
+  exit 1
+fi
+
+if [[ -z "${N_ACTION_STEPS}" ]]; then
+  N_ACTION_STEPS="${CHUNK_SIZE}"
 fi
 
 CHECKPOINT_DIR="$(printf "%06d" "${CHECKPOINT}")"
@@ -108,7 +123,7 @@ stop_children() {
 trap stop_children INT
 
 echo "Starting data_collect.py..."
-bash -c 'exec python "$@"' bash /home/jeremiah/openteach/data_collect.py robot=franka demo_num="${RECORD}" &
+bash -c 'exec python "$@"' bash /home/jeremiah/openteach/data_collect.py robot=franka demo_num="${RECORD}" >/dev/null 2>&1 &
 DATA_PID=$!
 
 sleep 0.2
@@ -125,7 +140,7 @@ python -m lerobot.async_inference.robot_client \
   --pretrained_name_or_path="${POLICY_PATH}" \
   --policy_device=cuda \
   --client_device=cpu \
-  --actions_per_chunk=100 \
+  --actions_per_chunk="${CHUNK_SIZE}" \
   --chunk_size_threshold=0.0 \
   --aggregate_fn_name=latest_only \
   --policy_dtype=bfloat16 \

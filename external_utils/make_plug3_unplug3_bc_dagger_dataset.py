@@ -6,13 +6,13 @@ from tqdm import tqdm
 
 LAST_N_FRAMES_DONE = 1
 # Configuration
-REPO_ID = f"lerobot/unplug3_bc_and_dagger_w_done_{LAST_N_FRAMES_DONE}"
-DATASET_NAME = f"unplug3_bc_and_dagger_w_done_{LAST_N_FRAMES_DONE}"
+REPO_ID = f"lerobot/nutegunray_plug4_w_dagger"
+DATASET_NAME = f"nutegunray_plug4_w_dagger"
 ORIG_DATASET_PATHS = (
-    Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
+    # Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
     # Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
     # Path("/data3/extracted_data/unplug3_rollouts_w_dagger/full_rollout_h5_files"),
-    Path("/data3/extracted_data/unplug3_rollouts_w_dagger/full_rollout_h5_files"),
+    Path("/home/jeremiah/openteach/extracted_data/nutegunray_plug4_rollouts_w_dagger/full_rollout_h5_files"),
 )
 
 FPS = 20
@@ -132,12 +132,12 @@ def main():
 
 
 def get_task_instructions(fname):
-    assert "plug2" not in fname, "This dataset should only contain plug3 and unplug3 episodes"
-    if "unplug3" in fname:
-        return "Unplug the charger"
-    else:
-        assert False
-        return "Plug the charger into the power strip"
+    return "Plug the charger into the power strip"
+    # return "Unplug the charger"
+    # assert "plug2" not in fname, "This dataset should only contain plug3 and unplug3 episodes"
+    # if "unplug3" in fname:
+    # else:
+    #     assert False
 
 
 if __name__ == "__main__":
