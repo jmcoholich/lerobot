@@ -1775,6 +1775,18 @@ class PI05Policy(PreTrainedPolicy):
 
         return self.model.predict_q_values(images, img_masks, tokens, masks, actions)
 
+    @torch.no_grad()
+    def predict_values(self, batch: dict[str, Tensor]) -> Tensor:
+        """Predict scalar values for the observations in the batch."""
+        if not self.config.use_value_model:
+            raise NotImplementedError("predict_values is only supported when use_value_model is enabled.")
+        self.eval()
+
+        images, img_masks = self._preprocess_images(batch)
+        tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
+
+        return self.model.predict_values(images, img_masks, tokens, masks)
+
     @staticmethod
     def _get_reward_values(batch: dict[str, Tensor]) -> Tensor | None:
         for reward_key in ("reward", REWARD):

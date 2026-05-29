@@ -12,7 +12,7 @@ VALUE_KEY=${2:-returns_gamma_0.995}
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=100
 LR=5e-5
-DATASET='plug3_w_rollouts'
+DATASET='plug5_offline_rl_dataset'
 DATA_ROOT=/coc/testnvme/jcoholich3/lerobot_data
 # DATA_ROOT=/data3/lerobot_data
 
