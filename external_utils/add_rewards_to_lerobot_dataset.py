@@ -1,9 +1,10 @@
-import sys
+import json
 from pathlib import Path
 
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
+import pyarrow.parquet as pq
 
 STEP_REWARD = -1.0
 SUCCESS_REWARD = 500.0
@@ -167,11 +168,116 @@ fname_is_success = {}
 # }
 fname_is_success.update({f"demo_{fname}": success for fname, success in fname_is_success.items()})
 GAMMAS = [0.999, 0.995, 0.99, 0.95, 0.9]
+STAT_QUANTILES = [0.01, 0.10, 0.50, 0.90, 0.99]
+
+
+def reward_return_columns():
+    return ["reward", *(f"returns_gamma_{gamma}" for gamma in GAMMAS)]
+
+
+def find_dataset_root(parquet_path: Path) -> Path | None:
+    for parent in parquet_path.parents:
+        if parent.name == "data" and (parent.parent / "meta" / "info.json").exists():
+            return parent.parent
+    return None
+
+
+def load_new_feature_values(dataset_root: Path, feature_columns: list[str]) -> dict[str, np.ndarray]:
+    parquet_paths = sorted((dataset_root / "data").glob("*/*.parquet"))
+    if not parquet_paths:
+        raise ValueError(f"No parquet files found under {dataset_root / 'data'}")
+
+    values = {column: [] for column in feature_columns}
+    missing_columns_by_file = []
+
+    for data_path in parquet_paths:
+        available_columns = set(pq.read_schema(data_path).names)
+        missing_columns = [column for column in feature_columns if column not in available_columns]
+        if missing_columns:
+            missing_columns_by_file.append((data_path.relative_to(dataset_root), missing_columns))
+            continue
+
+        columns_df = pd.read_parquet(data_path, columns=feature_columns)
+        for column in feature_columns:
+            values[column].append(columns_df[column].to_numpy(dtype=np.float32, copy=False))
+
+    if missing_columns_by_file:
+        preview = ", ".join(
+            f"{path}: {columns}" for path, columns in missing_columns_by_file[:5]
+        )
+        if len(missing_columns_by_file) > 5:
+            preview += f", ... ({len(missing_columns_by_file)} files total)"
+        raise ValueError(
+            "Not all parquet files have the new reward/return columns yet. "
+            f"Metadata was left unchanged. Missing columns: {preview}"
+        )
+
+    return {column: np.concatenate(column_values) for column, column_values in values.items()}
+
+
+def load_json_file(path: Path) -> dict:
+    with open(path) as f:
+        return json.load(f)
+
+
+def write_json_file(data: dict, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+
+def scalar_feature_stats(values: np.ndarray) -> dict[str, list[float] | list[int]]:
+    values = values.astype(np.float32, copy=False).reshape(-1)
+    stats: dict[str, list[float] | list[int]] = {
+        "min": [float(np.min(values))],
+        "max": [float(np.max(values))],
+        "mean": [float(np.mean(values, dtype=np.float64))],
+        "std": [float(np.std(values, dtype=np.float64))],
+        "count": [int(values.shape[0])],
+    }
+
+    for quantile in STAT_QUANTILES:
+        stats[f"q{int(quantile * 100):02d}"] = [float(np.quantile(values, quantile))]
+
+    return stats
+
+
+def update_reward_return_metadata(parquet_path: Path, feature_columns: list[str]) -> None:
+    dataset_root = find_dataset_root(parquet_path)
+    if dataset_root is None:
+        print("\nCould not find dataset meta/info.json from parquet path; skipped metadata update.")
+        return
+
+    try:
+        feature_values = load_new_feature_values(dataset_root, feature_columns)
+    except ValueError as exc:
+        print(f"\nSkipped metadata update: {exc}")
+        return
+
+    info_path = dataset_root / "meta" / "info.json"
+    stats_path = dataset_root / "meta" / "stats.json"
+
+    info = load_json_file(info_path)
+    for column in feature_columns:
+        info["features"][column] = {
+            "dtype": "float32",
+            "shape": [1],
+            "names": None,
+        }
+    write_json_file(info, info_path)
+
+    stats = load_json_file(stats_path) if stats_path.exists() else {}
+    for column, values in feature_values.items():
+        stats[column] = scalar_feature_stats(values)
+    write_json_file(stats, stats_path)
+
+    print(f"\nUpdated metadata at: {dataset_root / 'meta'}")
 
 
 def inspect_parquet(path, num_rows=5):
     print(f"\n=== Loading: {path} ===\n")
 
+    path = Path(path)
     df = pd.read_parquet(path)
     df["reward"] = STEP_REWARD
     last_frame = df.groupby("episode_index")["frame_index"].transform("max")
@@ -198,6 +304,9 @@ def inspect_parquet(path, num_rows=5):
         df[f"returns_gamma_{gamma}"] = returns[:, gamma_idx]
 
     df.to_parquet(path, index=False)
+    feature_cols = reward_return_columns()
+    return_cols = feature_cols[1:]
+    update_reward_return_metadata(path, feature_cols)
 
     print("=== SHAPE ===")
     print(df.shape)
@@ -233,7 +342,6 @@ def inspect_parquet(path, num_rows=5):
         .sort_values("success")
     )
     plot_df = df[df["episode_index"].isin(plot_episodes["episode_index"])]
-    return_cols = [f"returns_gamma_{gamma}" for gamma in GAMMAS]
     fig, axes = plt.subplots(len(plot_episodes), 1, sharex=False, figsize=(12, 4 * len(plot_episodes)))
     axes = np.atleast_1d(axes)
     max_episode_steps = plot_df.groupby("episode_index").size().max() + 50
