@@ -3,11 +3,11 @@ from pathlib import Path
 from lerobot.datasets.aggregate import aggregate_datasets
 
 datasets = [
-    "r2d2_reset_plug4_11",
-    "nutegunray_unplug4",
+    "rickross_autonomous_rollouts",
+    "plug5",
 ]
 
-merged_dataset_name = "unplug_yusuf"
+merged_dataset_name = "plug5_offline_rl_dataset"
 
 aggregate_datasets(
     repo_ids=[f"lerobot/{name}" for name in datasets],

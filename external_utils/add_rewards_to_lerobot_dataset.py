@@ -7,60 +7,165 @@ import matplotlib.pyplot as plt
 
 STEP_REWARD = -1.0
 SUCCESS_REWARD = 500.0
+ALL_EPISODES_SUCCESS = True
+fname_is_success = {}
 
-fname_is_success = {
-"demo_plug3_0.h5": 1.0,
-"demo_plug3_10.h5": 1.0,
-"demo_plug3_11.h5": 1.0,
-"demo_plug3_12.h5": 1.0,
-"demo_plug3_13.h5": 1.0,
-"demo_plug3_14.h5": 1.0,
-"demo_plug3_15.h5": 1.0,
-"demo_plug3_16.h5": 1.0,
-"demo_plug3_17.h5": 1.0,
-"demo_plug3_18.h5": 1.0,
-"demo_plug3_19.h5": 1.0,
-"demo_plug3_1.h5": 1.0,
-"demo_plug3_20.h5": 1.0,
-"demo_plug3_21.h5": 1.0,
-"demo_plug3_22.h5": 1.0,
-"demo_plug3_23.h5": 1.0,
-"demo_plug3_24.h5": 1.0,
-"demo_plug3_2.h5": 1.0,
-"demo_plug3_3.h5": 1.0,
-"demo_plug3_4.h5": 1.0,
-"demo_plug3_5.h5": 1.0,
-"demo_plug3_6.h5": 1.0,
-"demo_plug3_7.h5": 1.0,
-"demo_plug3_8.h5": 1.0,
-"demo_plug3_9.h5": 1.0,
-"demo_plug3_rollout_1.h5": 0.0,
-"demo_plug3_rollout_2.h5": 0.0,
-"demo_plug3_rollout_3.h5": 1.0,
-"demo_plug3_rollout_4.h5": 0.0,
-"demo_plug3_rollout_5.h5": 0.0,
-"demo_plug3_rollout_6.h5": 1.0,
-"demo_plug3_rollout_7.h5": 0.0,
-"demo_plug3_rollout_8.h5": 1.0,
-"demo_plug3_rollout_9.h5": 0.0,
-"demo_plug3_rollout_10.h5": 0.0,
-"demo_plug3_rollout_11.h5": 0.5,
-"demo_plug3_rollout_12.h5": 1.0,
-"demo_plug3_rollout_13.h5": 0.0,
-"demo_plug3_rollout_14.h5": 1.0,
-"demo_plug3_rollout_15.h5": 0.0,
-"demo_plug3_rollout_16.h5": 0.5,
-"demo_plug3_rollout_17.h5": 1.0,
-"demo_plug3_rollout_18.h5": 1.0,
-"demo_plug3_rollout_19.h5": 0.0,
-"demo_plug3_rollout_20.h5": 0.0,
-"demo_plug3_rollout_21.h5": 0.5,
-"demo_plug3_rollout_22.h5": 0.0,
-"demo_plug3_rollout_23.h5": 1.0,
-"demo_plug3_rollout_24.h5": 0.0,
-"demo_plug3_rollout_25.h5": 0.0,
-}
+# fname_is_success = {
+# "demo_plug3_0.h5": 1.0,
+# "demo_plug3_10.h5": 1.0,
+# "demo_plug3_11.h5": 1.0,
+# "demo_plug3_12.h5": 1.0,
+# "demo_plug3_13.h5": 1.0,
+# "demo_plug3_14.h5": 1.0,
+# "demo_plug3_15.h5": 1.0,
+# "demo_plug3_16.h5": 1.0,
+# "demo_plug3_17.h5": 1.0,
+# "demo_plug3_18.h5": 1.0,
+# "demo_plug3_19.h5": 1.0,
+# "demo_plug3_1.h5": 1.0,
+# "demo_plug3_20.h5": 1.0,
+# "demo_plug3_21.h5": 1.0,
+# "demo_plug3_22.h5": 1.0,
+# "demo_plug3_23.h5": 1.0,
+# "demo_plug3_24.h5": 1.0,
+# "demo_plug3_2.h5": 1.0,
+# "demo_plug3_3.h5": 1.0,
+# "demo_plug3_4.h5": 1.0,
+# "demo_plug3_5.h5": 1.0,
+# "demo_plug3_6.h5": 1.0,
+# "demo_plug3_7.h5": 1.0,
+# "demo_plug3_8.h5": 1.0,
+# "demo_plug3_9.h5": 1.0,
+# "demo_plug3_rollout_1.h5": 0.0,
+# "demo_plug3_rollout_2.h5": 0.0,
+# "demo_plug3_rollout_3.h5": 1.0,
+# "demo_plug3_rollout_4.h5": 0.0,
+# "demo_plug3_rollout_5.h5": 0.0,
+# "demo_plug3_rollout_6.h5": 1.0,
+# "demo_plug3_rollout_7.h5": 0.0,
+# "demo_plug3_rollout_8.h5": 1.0,
+# "demo_plug3_rollout_9.h5": 0.0,
+# "demo_plug3_rollout_10.h5": 0.0,
+# "demo_plug3_rollout_11.h5": 0.5,
+# "demo_plug3_rollout_12.h5": 1.0,
+# "demo_plug3_rollout_13.h5": 0.0,
+# "demo_plug3_rollout_14.h5": 1.0,
+# "demo_plug3_rollout_15.h5": 0.0,
+# "demo_plug3_rollout_16.h5": 0.5,
+# "demo_plug3_rollout_17.h5": 1.0,
+# "demo_plug3_rollout_18.h5": 1.0,
+# "demo_plug3_rollout_19.h5": 0.0,
+# "demo_plug3_rollout_20.h5": 0.0,
+# "demo_plug3_rollout_21.h5": 0.5,
+# "demo_plug3_rollout_22.h5": 0.0,
+# "demo_plug3_rollout_23.h5": 1.0,
+# "demo_plug3_rollout_24.h5": 0.0,
+# "demo_plug3_rollout_25.h5": 0.0,
+# }
 
+# fname_is_success = {
+#     "rickross_plug5_1.h5": 0.5,
+#     "rickross_plug5_2.h5": 0.0,
+#     "rickross_plug5_3.h5": 0.0,
+#     "rickross_plug5_4.h5": 1.0,
+#     "rickross_plug5_5.h5": 0.0,
+#     "rickross_plug5_6.h5": 1.0,
+#     "rickross_plug5_7.h5": 0.0,
+#     "rickross_plug5_8.h5": 1.0,
+#     "rickross_plug5_9.h5": 1.0,
+#     "rickross_plug5_10.h5": 0.5,
+#     "rickross_plug5_11.h5": 1.0,
+#     "rickross_plug5_12.h5": 1.0,
+#     "rickross_plug5_13.h5": 1.0,
+#     "rickross_plug5_14.h5": 0.0,
+#     "rickross_plug5_15.h5": 0.5,
+#     "rickross_plug5_16.h5": 1.0,
+#     "rickross_plug5_17.h5": 0.0,
+#     "rickross_plug5_18.h5": 0.0,
+#     "rickross_plug5_19.h5": 0.0,
+#     "rickross_plug5_20.h5": 0.0,
+#     "rickross_plug5_21.h5": 1.0,
+#     "rickross_plug5_22.h5": 1.0,
+#     "rickross_plug5_23.h5": 1.0,
+#     "rickross_plug5_24.h5": 0.0,
+#     "rickross_plug5_25.h5": 0.5,
+#     "rickross_plug5_26.h5": 0.0,
+#     "rickross_plug5_27.h5": 1.0,
+#     "rickross_plug5_28.h5": 0.5,
+#     "rickross_plug5_29.h5": 1.0,
+#     "rickross_plug5_30.h5": 1.0,
+#     "rickross_plug5_31.h5": 1.0,
+#     "rickross_plug5_32.h5": 0.0,
+#     "rickross_plug5_33.h5": 0.0,
+#     "rickross_plug5_34.h5": 0.5,
+#     "rickross_plug5_35.h5": 1.0,
+#     "rickross_plug5_36.h5": 0.0,
+#     "rickross_plug5_37.h5": 1.0,
+#     "rickross_plug5_38.h5": 0.0,
+#     "rickross_plug5_39.h5": 1.0,
+#     "rickross_plug5_40.h5": 1.0,
+#     "rickross_plug5_41.h5": 1.0,
+#     "rickross_plug5_42.h5": 0.0,
+#     "rickross_plug5_43.h5": 0.5,
+#     "rickross_plug5_44.h5": 0.5,
+#     "rickross_plug5_45.h5": 1.0,
+#     "rickross_plug5_46.h5": 0.5,
+#     "rickross_plug5_47.h5": 1.0,
+#     "rickross_plug5_48.h5": 1.0,
+#     "rickross_plug5_49.h5": 0.5,
+#     "rickross_plug5_50.h5": 0.0,
+#     "rickross_plug5_51.h5": 0.0,
+#     "rickross_plug5_52.h5": 0.0,
+#     "rickross_plug5_53.h5": 0.5,
+#     "rickross_plug5_54.h5": 0.0,
+#     "rickross_plug5_55.h5": 0.5,
+#     "rickross_plug5_56.h5": 0.5,
+#     "rickross_plug5_57.h5": 0.0,
+#     "rickross_plug5_58.h5": 0.0,
+#     "rickross_plug5_59.h5": 1.0,
+#     "rickross_plug5_60.h5": 1.0,
+#     "rickross_plug5_61.h5": 0.0,
+#     "rickross_plug5_62.h5": 0.0,
+#     "rickross_plug5_63.h5": 1.0,
+#     "rickross_plug5_64.h5": 0.5,
+#     "rickross_plug5_65.h5": 0.5,
+#     "rickross_plug5_66.h5": 0.5,
+#     "rickross_plug5_67.h5": 0.5,
+#     "rickross_plug5_68.h5": 0.5,
+#     "rickross_plug5_69.h5": 1.0,
+#     "rickross_plug5_70.h5": 0.0,
+#     "rickross_plug5_71.h5": 0.5,
+#     "rickross_plug5_72.h5": 1.0,
+#     "rickross_plug5_73.h5": 1.0,
+#     "rickross_plug5_74.h5": 1.0,
+#     "rickross_plug5_75.h5": 0.5,
+#     "rickross_plug5_76.h5": 0.5,
+#     "rickross_plug5_77.h5": 0.0,
+#     "rickross_plug5_78.h5": 0.0,
+#     "rickross_plug5_79.h5": 1.0,
+#     "rickross_plug5_80.h5": 1.0,
+#     "rickross_plug5_81.h5": 0.0,
+#     "rickross_plug5_82.h5": 1.0,
+#     "rickross_plug5_83.h5": 0.5,
+#     "rickross_plug5_84.h5": 1.0,
+#     "rickross_plug5_85.h5": 1.0,
+#     "rickross_plug5_86.h5": 0.0,
+#     "rickross_plug5_87.h5": 0.0,
+#     "rickross_plug5_88.h5": 0.5,
+#     "rickross_plug5_89.h5": 0.5,
+#     "rickross_plug5_90.h5": 0.5,
+#     "rickross_plug5_91.h5": 0.0,
+#     "rickross_plug5_92.h5": 0.5,
+#     "rickross_plug5_93.h5": 1.0,
+#     "rickross_plug5_94.h5": 0.0,
+#     "rickross_plug5_95.h5": 1.0,
+#     "rickross_plug5_96.h5": 1.0,
+#     "rickross_plug5_97.h5": 0.0,
+#     "rickross_plug5_98.h5": 0.5,
+#     "rickross_plug5_99.h5": 1.0,
+#     "rickross_plug5_100.h5": 0.0,
+# }
+fname_is_success.update({f"demo_{fname}": success for fname, success in fname_is_success.items()})
 GAMMAS = [0.999, 0.995, 0.99, 0.95, 0.9]
 
 
@@ -71,7 +176,10 @@ def inspect_parquet(path, num_rows=5):
     df["reward"] = STEP_REWARD
     last_frame = df.groupby("episode_index")["frame_index"].transform("max")
     is_last_frame = df["frame_index"] == last_frame
-    df.loc[is_last_frame, "reward"] = SUCCESS_REWARD * df.loc[is_last_frame, "fname"].map(fname_is_success)
+    if ALL_EPISODES_SUCCESS:
+        df.loc[is_last_frame, "reward"] = SUCCESS_REWARD
+    else:
+        df.loc[is_last_frame, "reward"] = SUCCESS_REWARD * df.loc[is_last_frame, "fname"].map(fname_is_success)
     df["reward"] = df["reward"].astype("float32")
 
     rewards = df["reward"].to_numpy(dtype=np.float32, copy=False)
@@ -115,7 +223,10 @@ def inspect_parquet(path, num_rows=5):
             print(val)
 
     episode_last_rows = df.loc[df.groupby("episode_index")["frame_index"].idxmax()].copy()
-    episode_last_rows["success"] = episode_last_rows["fname"].map(fname_is_success)
+    if ALL_EPISODES_SUCCESS:
+        episode_last_rows["success"] = 1.0
+    else:
+        episode_last_rows["success"] = episode_last_rows["fname"].map(fname_is_success)
     plot_episodes = (
         episode_last_rows[episode_last_rows["success"].isin([0.0, 0.5, 1.0])]
         .drop_duplicates("success")
@@ -135,7 +246,7 @@ def inspect_parquet(path, num_rows=5):
         ax.plot(x, episode_df["reward"].to_numpy(copy=False), label="reward", color="black", linewidth=2)
         for col in return_cols:
             ax.plot(x, episode_df[col].to_numpy(copy=False), label=col, linestyle=":", linewidth=2.5, alpha=0.85)
-        success = fname_is_success[episode_df["fname"].iloc[-1]]
+        success = 1.0 if ALL_EPISODES_SUCCESS else fname_is_success[episode_df["fname"].iloc[-1]]
         ax.set_title(f"Episode {episode_index} (success {success})")
         ax.set_xlabel("step")
         ax.set_ylabel("value")
@@ -152,5 +263,5 @@ def inspect_parquet(path, num_rows=5):
 
 
 if __name__ == "__main__":
-    path = "/data3/lerobot_data/plug3_w_rollouts/data/chunk-000/file-000.parquet"
+    path = "/data3/lerobot_data/plug5/data/chunk-000/file-000.parquet"
     inspect_parquet(path)

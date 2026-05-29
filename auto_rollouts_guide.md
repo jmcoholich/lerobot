@@ -11,7 +11,7 @@ bash pi_05_server_inference.bash \
   --prompt "Plug the charger into the power strip" \
   --name plug5 \
   --chunk-size 40 \
-  --checkpoint 3000 \
+  --checkpoint 6000 \
   --port 8080 \
   --record "plug5_rollout"
 
@@ -19,7 +19,7 @@ bash pi_05_server_inference.bash \
   --prompt "Unplug the charger" \
   --name unplug5 \
   --chunk-size 40 \
-  --checkpoint 3000 \
+  --checkpoint 6000 \
   --port 8081 \
   --record "unplug5_rollout"
 ```

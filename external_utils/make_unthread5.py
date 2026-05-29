@@ -4,14 +4,13 @@ from pathlib import Path
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from tqdm import tqdm
 
+LAST_N_FRAMES_DONE = 1
 # Configuration
-REPO_ID = "lerobot/thread3_dagger_only"
-DATASET_NAME = "thread3_dagger_only"
+REPO_ID = "lerobot/unthread5"
+DATASET_NAME = "unthread5"
 ORIG_DATASET_PATHS = (
-    # Path("/home/jeremiah/openteach/extracted_data/thread3/h5_files"),
-    # Path("/home/jeremiah/openteach/extracted_data/unthread4/h5_files"),
-    Path("/data3/extracted_data/thread3_rollouts_w_dagger/dagger_only_h5_files"),
-    # Path("/data3/extracted_data/unthread4_rollouts_w_dagger/full_rollout_h5_files"),
+    Path("/home/jeremiah/openteach/extracted_data/unthread4/h5_files"),
+    Path("/data3/extracted_data/unthread4_rollouts_w_dagger/full_rollout_h5_files"),
 )
 
 FPS = 20
@@ -22,8 +21,8 @@ ROOT_DIR = Path(f"/data3/lerobot_data/{DATASET_NAME}")  # Where the dataset will
 FEATURES = {
     "action": {
         "dtype": "float32",
-        "shape": (8,),
-        "names": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7", "gripper_cmd"],
+        "shape": (9,),
+        "names": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7", "gripper_cmd", "done"],
     },
     "observation.state": {
         "dtype": "float32",
@@ -79,8 +78,8 @@ def main():
             # Extract hdf5 data
 
             # fix quat
-            actions = np.concatenate([f['arm_action'], np.expand_dims(f['gripper_action'], axis=1)], axis=1, dtype=np.float32)
             observation_states = np.concatenate([f['joint_pos'], np.expand_dims(f['gripper_state'],  axis=1), f['last_tau_ext_hat_filtered'][:]], axis=1, dtype=np.float32)
+            num_frames = observation_states.shape[0]
             rgb_frames = f['rgb_frames'][:]
             camera_side_imgs = rgb_frames[:, 0, :, :, ::-1]
             camera_wrist_imgs = rgb_frames[:, 1, :, :, ::-1]
@@ -88,7 +87,9 @@ def main():
             camera_front_imgs[:, :, :140] = 0
             camera_front_imgs[:, :, 500:] = 0
 
-            num_frames = observation_states.shape[0]
+            done_actions = np.zeros(num_frames, dtype=np.float32)
+            done_actions[-LAST_N_FRAMES_DONE:] = 1.0
+            actions = np.concatenate([f['arm_action'], np.expand_dims(f['gripper_action'], axis=1), np.expand_dims(done_actions, axis=1)], axis=1, dtype=np.float32)
 
             # 3. Iterate over frames
             for i in range(num_frames):
@@ -127,10 +128,10 @@ def main():
 
 
 def get_task_instructions(fname):
-    if "unthread4" in fname:
-        return "Unscrew the nut and set it on the table"
-    else:
-        return "Thread the nut onto the bolt"
+    return "Unscrew the nut and set it on the table"
+    # return "Thread the nut onto the bolt"
+    # if "unthread4" in fname:
+    # else:
 
 
 if __name__ == "__main__":

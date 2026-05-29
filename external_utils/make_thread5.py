@@ -6,18 +6,18 @@ from tqdm import tqdm
 
 LAST_N_FRAMES_DONE = 1
 # Configuration
-REPO_ID = f"lerobot/rickross_autonomous_rollouts"
-DATASET_NAME = f"rickross_autonomous_rollouts"
+REPO_ID = "lerobot/thread5"
+DATASET_NAME = "thread5"
+DAGGER_ONLY_H5_PATH = Path("/data3/extracted_data/thread3_rollouts_w_dagger/dagger_only_h5_files")
 ORIG_DATASET_PATHS = (
-    # Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
-    # Path("/home/jeremiah/openteach/extracted_data/unplug3/h5_files"),
-    # Path("/data3/extracted_data/unplug3_rollouts_w_dagger/full_rollout_h5_files"),
-    Path("/data3/extracted_data/rickross_plug5_rollouts/h5_files"),
+    Path("/home/jeremiah/openteach/extracted_data/thread3/h5_files"),
+    # Path("/home/jeremiah/openteach/extracted_data/unthread4/h5_files"),
+    DAGGER_ONLY_H5_PATH,
+    # Path("/data3/extracted_data/unthread4_rollouts_w_dagger/full_rollout_h5_files"),
 )
 
 FPS = 20
 ROOT_DIR = Path(f"/data3/lerobot_data/{DATASET_NAME}")  # Where the dataset will be created locally
-
 
 # Define your features match your HDF5 content
 # Note: 'task' is not defined here but is required in add_frame()
@@ -80,7 +80,6 @@ def main():
         with h5py.File(h5_path, "r") as f:
             # Extract hdf5 data
 
-
             # fix quat
             observation_states = np.concatenate([f['joint_pos'], np.expand_dims(f['gripper_state'],  axis=1), f['last_tau_ext_hat_filtered'][:]], axis=1, dtype=np.float32)
             num_frames = observation_states.shape[0]
@@ -92,7 +91,8 @@ def main():
             camera_front_imgs[:, :, 500:] = 0
 
             done_actions = np.zeros(num_frames, dtype=np.float32)
-            done_actions[-LAST_N_FRAMES_DONE:] = 1.0
+            if h5_path.parent != DAGGER_ONLY_H5_PATH or h5_path.name == "demo_thread3_dagger_0.h5":
+                done_actions[-LAST_N_FRAMES_DONE:] = 1.0
             actions = np.concatenate([f['arm_action'], np.expand_dims(f['gripper_action'], axis=1), np.expand_dims(done_actions, axis=1)], axis=1, dtype=np.float32)
 
             # 3. Iterate over frames
@@ -132,12 +132,10 @@ def main():
 
 
 def get_task_instructions(fname):
-    return "Plug the charger into the power strip"
-    # return "Unplug the charger"
-    # assert "plug2" not in fname, "This dataset should only contain plug3 and unplug3 episodes"
-    # if "unplug3" in fname:
+    return "Thread the nut onto the bolt"
+    # if "unthread4" in fname:
+    #     return "Unscrew the nut and set it on the table"
     # else:
-    #     assert False
 
 
 if __name__ == "__main__":
