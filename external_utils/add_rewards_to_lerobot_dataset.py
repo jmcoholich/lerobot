@@ -8,7 +8,16 @@ import pyarrow.parquet as pq
 
 STEP_REWARD = -1.0
 SUCCESS_REWARD = 500.0
-ALL_EPISODES_SUCCESS = True
+PARTIAL_SUCCESS_SCORE = 0.5
+
+# Exactly one of these modes should be enabled.
+ALL_EPISODES_SUCCESS = False
+ALL_EPISODES_FAILURE = False
+ALL_EPISODES_PARTIAL_SUCCESS = True
+FNAME_SUCCESS_LABELS = False
+
+# Used only when FNAME_SUCCESS_LABELS is True. Values can be 0.0 for failure,
+# 0.5 for partial success, 1.0 for success, or any fractional success score.
 fname_is_success = {}
 
 # fname_is_success = {
@@ -175,6 +184,45 @@ def reward_return_columns():
     return ["reward", *(f"returns_gamma_{gamma}" for gamma in GAMMAS)]
 
 
+def get_reward_mode() -> str:
+    modes = {
+        "ALL_EPISODES_SUCCESS": ALL_EPISODES_SUCCESS,
+        "ALL_EPISODES_FAILURE": ALL_EPISODES_FAILURE,
+        "ALL_EPISODES_PARTIAL_SUCCESS": ALL_EPISODES_PARTIAL_SUCCESS,
+        "FNAME_SUCCESS_LABELS": FNAME_SUCCESS_LABELS,
+    }
+    active_modes = [mode for mode, enabled in modes.items() if enabled]
+    if len(active_modes) != 1:
+        raise ValueError(f"Expected exactly one reward mode to be True, got {active_modes}")
+    return active_modes[0]
+
+
+def get_episode_success_scores(episode_last_rows: pd.DataFrame) -> pd.Series:
+    reward_mode = get_reward_mode()
+
+    if reward_mode == "ALL_EPISODES_SUCCESS":
+        return pd.Series(1.0, index=episode_last_rows.index, dtype=np.float32)
+
+    if reward_mode == "ALL_EPISODES_FAILURE":
+        return pd.Series(0.0, index=episode_last_rows.index, dtype=np.float32)
+
+    if reward_mode == "ALL_EPISODES_PARTIAL_SUCCESS":
+        return pd.Series(PARTIAL_SUCCESS_SCORE, index=episode_last_rows.index, dtype=np.float32)
+
+    if "fname" not in episode_last_rows.columns:
+        raise ValueError("FNAME_SUCCESS_LABELS=True requires an 'fname' column in the parquet data")
+
+    success_scores = episode_last_rows["fname"].map(fname_is_success)
+    missing_fnames = episode_last_rows.loc[success_scores.isna(), "fname"].unique()
+    if len(missing_fnames) > 0:
+        raise ValueError(
+            "FNAME_SUCCESS_LABELS=True requires every terminal frame fname to be present in "
+            f"fname_is_success. Missing: {missing_fnames.tolist()}"
+        )
+
+    return success_scores.astype(np.float32)
+
+
 def find_dataset_root(parquet_path: Path) -> Path | None:
     for parent in parquet_path.parents:
         if parent.name == "data" and (parent.parent / "meta" / "info.json").exists():
@@ -280,12 +328,9 @@ def inspect_parquet(path, num_rows=5):
     path = Path(path)
     df = pd.read_parquet(path)
     df["reward"] = STEP_REWARD
-    last_frame = df.groupby("episode_index")["frame_index"].transform("max")
-    is_last_frame = df["frame_index"] == last_frame
-    if ALL_EPISODES_SUCCESS:
-        df.loc[is_last_frame, "reward"] = SUCCESS_REWARD
-    else:
-        df.loc[is_last_frame, "reward"] = SUCCESS_REWARD * df.loc[is_last_frame, "fname"].map(fname_is_success)
+    episode_last_rows = df.loc[df.groupby("episode_index")["frame_index"].idxmax()].copy()
+    episode_last_rows["success"] = get_episode_success_scores(episode_last_rows)
+    df.loc[episode_last_rows.index, "reward"] = SUCCESS_REWARD * episode_last_rows["success"]
     df["reward"] = df["reward"].astype("float32")
 
     rewards = df["reward"].to_numpy(dtype=np.float32, copy=False)
@@ -331,17 +376,11 @@ def inspect_parquet(path, num_rows=5):
         except:
             print(val)
 
-    episode_last_rows = df.loc[df.groupby("episode_index")["frame_index"].idxmax()].copy()
-    if ALL_EPISODES_SUCCESS:
-        episode_last_rows["success"] = 1.0
-    else:
-        episode_last_rows["success"] = episode_last_rows["fname"].map(fname_is_success)
     plot_episodes = (
-        episode_last_rows[episode_last_rows["success"].isin([0.0, 0.5, 1.0])]
-        .drop_duplicates("success")
-        .sort_values("success")
+        episode_last_rows.dropna(subset=["success"]).drop_duplicates("success").sort_values("success")
     )
     plot_df = df[df["episode_index"].isin(plot_episodes["episode_index"])]
+    success_by_episode = episode_last_rows.set_index("episode_index")["success"].to_dict()
     fig, axes = plt.subplots(len(plot_episodes), 1, sharex=False, figsize=(12, 4 * len(plot_episodes)))
     axes = np.atleast_1d(axes)
     max_episode_steps = plot_df.groupby("episode_index").size().max() + 50
@@ -354,7 +393,7 @@ def inspect_parquet(path, num_rows=5):
         ax.plot(x, episode_df["reward"].to_numpy(copy=False), label="reward", color="black", linewidth=2)
         for col in return_cols:
             ax.plot(x, episode_df[col].to_numpy(copy=False), label=col, linestyle=":", linewidth=2.5, alpha=0.85)
-        success = 1.0 if ALL_EPISODES_SUCCESS else fname_is_success[episode_df["fname"].iloc[-1]]
+        success = success_by_episode[episode_index]
         ax.set_title(f"Episode {episode_index} (success {success})")
         ax.set_xlabel("step")
         ax.set_ylabel("value")
@@ -371,5 +410,5 @@ def inspect_parquet(path, num_rows=5):
 
 
 if __name__ == "__main__":
-    path = "/data3/lerobot_data/plug5/data/chunk-000/file-000.parquet"
+    path = "/data3/lerobot_data/walle_skywalker_partial_success/data/chunk-000/file-000.parquet"
     inspect_parquet(path)
