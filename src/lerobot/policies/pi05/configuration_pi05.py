@@ -81,6 +81,7 @@ class PI05Config(PreTrainedConfig):
     freeze_vision_encoder: bool = False  # Freeze only the vision encoder
     train_expert_only: bool = False  # Freeze entire VLM, train only action expert and projections
     use_value_model: bool = False  # Replace the action expert branch with a scalar value head.
+    paligemma_pretrained_path: str | None = None  # Optional base PaliGemma checkpoint for value models.
     value_key: str = "returns_gamma_0.995"  # Batch key to regress when use_value_model is enabled.
     value_dim: int = 2  # Number of scalar values to predict.
     use_q_model: bool = False  # Use the action-conditioned scalar Q-value model.
@@ -129,6 +130,15 @@ class PI05Config(PreTrainedConfig):
 
         if self.use_value_model and self.use_q_model:
             raise ValueError("use_value_model and use_q_model are mutually exclusive")
+
+        if self.paligemma_pretrained_path is not None and not self.use_value_model:
+            raise ValueError("paligemma_pretrained_path is only supported with use_value_model=true")
+
+        if self.paligemma_pretrained_path is not None and self.pretrained_path is not None:
+            raise ValueError(
+                "paligemma_pretrained_path cannot be combined with pretrained_path; "
+                "pretrained_path would overwrite the base VLM weights with PI0.5 policy weights"
+            )
 
         if self.use_value_model and not self.value_key:
             raise ValueError("value_key must be non-empty when use_value_model is enabled")

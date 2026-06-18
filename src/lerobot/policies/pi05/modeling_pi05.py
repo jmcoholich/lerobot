@@ -539,6 +539,7 @@ class PaliGemmaBackboneModel(nn.Module):
         image_size: int = DEFAULT_IMAGE_SIZE,
         freeze_vision_encoder: bool = False,
         train_value_head_only: bool = False,
+        paligemma_pretrained_path: str | None = None,
     ):
         super().__init__()
         self.freeze_vision_encoder = freeze_vision_encoder
@@ -563,7 +564,15 @@ class PaliGemmaBackboneModel(nn.Module):
         vlm_config_hf.vision_config.projector_hidden_act = "gelu_fast"
         vlm_config_hf.vision_config.torch_dtype = "float32"
 
-        self.paligemma = PaliGemmaForConditionalGeneration(config=vlm_config_hf)
+        if paligemma_pretrained_path is None:
+            self.paligemma = PaliGemmaForConditionalGeneration(config=vlm_config_hf)
+        else:
+            logging.info("Loading base PaliGemma weights from %s", paligemma_pretrained_path)
+            torch_dtype = torch.bfloat16 if precision == "bfloat16" else torch.float32
+            self.paligemma = PaliGemmaForConditionalGeneration.from_pretrained(
+                paligemma_pretrained_path,
+                torch_dtype=torch_dtype,
+            )
         self.to_bfloat16_for_selected_params(precision)
         self._set_requires_grad()
 
@@ -1253,6 +1262,7 @@ class PI05ValuePytorch(nn.Module):
             image_size=config.image_resolution[0],
             freeze_vision_encoder=config.freeze_vision_encoder,
             train_value_head_only=config.train_expert_only,
+            paligemma_pretrained_path=config.paligemma_pretrained_path,
         )
         self.value_tokens = nn.Parameter(torch.randn(config.value_dim, paligemma_config.width) * 0.02)
         self.value_head = nn.Sequential(
