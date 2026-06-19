@@ -99,6 +99,48 @@ def to_float_list(values) -> list[float]:
     return np.asarray(values, dtype=np.float32).reshape(-1).tolist()
 
 
+def norm_mode_name(norm_mode) -> str:
+    return getattr(norm_mode, "value", str(norm_mode)).split(".")[-1].upper()
+
+
+def value_norm_from_preprocessor(preprocessor, value_key: str) -> tuple[str | None, dict]:
+    for step in getattr(preprocessor, "steps", []):
+        normalized_keys = getattr(step, "normalize_complementary_data_keys", None)
+        if normalized_keys is None or value_key not in normalized_keys:
+            continue
+        tensor_stats = getattr(step, "_tensor_stats", {})
+        if value_key not in tensor_stats:
+            raise KeyError(f"Checkpoint normalizes '{value_key}' but does not contain its stats")
+        return norm_mode_name(getattr(step, "complementary_data_norm_mode", "QUANTILES")), tensor_stats
+    return None, {}
+
+
+def unnormalize_values(values: torch.Tensor, value_key: str, value_stats: dict, norm_mode: str | None):
+    if norm_mode is None:
+        return values
+    if value_key not in value_stats:
+        raise KeyError(f"Cannot unnormalize predictions: missing stats for '{value_key}'")
+
+    stats = value_stats[value_key]
+    norm_mode = str(norm_mode).upper()
+
+    def stat_tensor(name: str):
+        if name not in stats:
+            raise KeyError(f"Cannot unnormalize predictions: missing '{name}' stats for '{value_key}'")
+        return torch.as_tensor(stats[name], dtype=values.dtype, device=values.device)
+
+    if norm_mode == "MEAN_STD":
+        return values * stat_tensor("std") + stat_tensor("mean")
+    if norm_mode == "MIN_MAX":
+        return (values + 1.0) * (stat_tensor("max") - stat_tensor("min")) / 2.0 + stat_tensor("min")
+    if norm_mode == "QUANTILES":
+        return (values + 1.0) * (stat_tensor("q99") - stat_tensor("q01")) / 2.0 + stat_tensor("q01")
+    if norm_mode == "QUANTILE10":
+        return (values + 1.0) * (stat_tensor("q90") - stat_tensor("q10")) / 2.0 + stat_tensor("q10")
+
+    raise ValueError(f"Unsupported complementary data normalization mode: {norm_mode}")
+
+
 def episode_targets(dataset_root: Path, episode_index: int, value_key: str) -> dict[int, float]:
     table = pa_ds.dataset(dataset_root / "data", format="parquet").to_table(
         columns=["frame_index", value_key],
@@ -108,13 +150,23 @@ def episode_targets(dataset_root: Path, episode_index: int, value_key: str) -> d
     return {int(frame): float(value) for frame, value in zip(data["frame_index"], data[value_key])}
 
 
-def predict_values(dataset, indices: list[int], policy, preprocessor, batch_size: int):
+def predict_values(
+    dataset,
+    indices: list[int],
+    policy,
+    preprocessor,
+    batch_size: int,
+    value_key: str,
+    value_stats: dict,
+    value_norm_mode: str | None,
+):
     values = []
     policy.reset()
     preprocessor.reset()
     for batch in DataLoader(Subset(dataset, indices), batch_size=batch_size, shuffle=False):
         with torch.inference_mode():
             pred = policy.predict_values(preprocessor(batch)).detach().float().cpu()
+            pred = unnormalize_values(pred, value_key, value_stats, value_norm_mode)
         values.extend(to_float_list(pred))
     return values
 
@@ -141,6 +193,7 @@ def main():
         pretrained_path=str(policy_path),
         preprocessor_overrides={"device_processor": {"device": cfg.device}},
     )
+    value_norm_mode, value_stats = value_norm_from_preprocessor(preprocessor, cfg.value_key)
 
     key = f"{policy_path.parents[2].name}_{policy_path.parent.name}"
     camera_keys = list(dataset.meta.camera_keys)
@@ -155,7 +208,16 @@ def main():
         start, end = episode_bounds(dataset, episode_index)
         global_indices, frame_indices = sample_indices(start, end, args.num_frames)
         task_index, instruction = episode_task(dataset, episode_index)
-        values = predict_values(dataset, global_indices, policy, preprocessor, args.batch_size)
+        values = predict_values(
+            dataset,
+            global_indices,
+            policy,
+            preprocessor,
+            args.batch_size,
+            cfg.value_key,
+            value_stats,
+            value_norm_mode,
+        )
         targets_by_frame = episode_targets(dataset_root, episode_index, cfg.value_key)
         targets = [targets_by_frame[frame] for frame in frame_indices]
         advantages = [target - value for target, value in zip(targets, values)]
@@ -172,7 +234,14 @@ def main():
                 float(dataset.fps),
             )
 
-        result = {
+        json_path = output_dir / f"{base}.json"
+        if json_path.exists():
+            with json_path.open("r", encoding="utf-8") as f:
+                result = json.load(f)
+        else:
+            result = {}
+
+        result.update({
             "instruction": instruction,
             "video": video_rel,
             "num_frames": len(values),
@@ -184,6 +253,8 @@ def main():
             key: {
                 "model": str(policy_path),
                 "value_key": cfg.value_key,
+                "prediction_scale": "raw" if value_norm_mode is not None else "model_output",
+                "unnormalized_from": value_norm_mode,
                 "camera_keys": camera_keys,
                 "values": values,
                 "progress_scores": values,
@@ -196,16 +267,15 @@ def main():
                 "progress_scores": targets,
                 "frame_indices": frame_indices,
             },
-            f"advantages_{cfg.value_key}": {
+            f"advantages_{key}_{cfg.value_key}": {
                 "value_key": cfg.value_key,
                 "prediction_key": key,
                 "values": advantages,
                 "progress_scores": advantages,
                 "frame_indices": frame_indices,
             },
-        }
+        })
 
-        json_path = output_dir / f"{base}.json"
         json_path.parent.mkdir(parents=True, exist_ok=True)
         with json_path.open("w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, allow_nan=False)
