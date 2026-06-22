@@ -13,9 +13,11 @@ JOB_NAME=$2
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=100
 DATASET=$1
+PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 
 echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
+echo "PI05 pretrained path: $PI05_BASE_PRETRAINED_PATH"
 NUM_GPUS=$(nvidia-smi --list-gpus 2>/dev/null | wc -l)
 LR=1e-4
 
@@ -36,7 +38,7 @@ $(which lerobot-train) \
     --output_dir=$OUTDIR \
     --job_name=$JOB_NAME \
     --policy.repo_id=your_repo_id \
-    --policy.pretrained_path=lerobot/pi05_base \
+    --policy.pretrained_path="$PI05_BASE_PRETRAINED_PATH" \
     --policy.compile_model=false \
     --policy.gradient_checkpointing=true \
     --wandb.enable=true \
