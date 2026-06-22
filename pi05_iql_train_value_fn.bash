@@ -11,6 +11,7 @@ JOB_NAME=$1
 VALUE_KEY=${2:-returns_gamma_0.995}
 INIT=${3:-paligemma}
 PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
+PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 OUTDIR=./outputs/$JOB_NAME
 LR=5e-5
 DATASET='plug5_offline_rl_dataset'
@@ -26,7 +27,8 @@ if [ "$INIT" = "paligemma" ]; then
     INIT_ARGS=(--policy.paligemma_pretrained_path="$PALIGEMMA_PRETRAINED_PATH")
     echo "PaliGemma pretrained path: $PALIGEMMA_PRETRAINED_PATH"
 elif [ "$INIT" = "pi05" ]; then
-    INIT_ARGS=(--policy.pretrained_path=lerobot/pi05_base)
+    INIT_ARGS=(--policy.pretrained_path="$PI05_BASE_PRETRAINED_PATH")
+    echo "PI05 pretrained path: $PI05_BASE_PRETRAINED_PATH"
 else
     echo "Unknown init '$INIT' (expected 'paligemma' or 'pi05')" >&2
     exit 1
@@ -62,3 +64,5 @@ python src/lerobot/scripts/lerobot_train.py\
     --log_freq=5 \
     --save_freq=1000 \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
+
+sbatch --array=1,5,45,50,51,52,53,54,55,56,57,58,59 pi05_value_inference_static.bash $1 plug5_offline_rl_dataset 006000 1,5,45,50,51,52,53,54,55,56,57,58,59
