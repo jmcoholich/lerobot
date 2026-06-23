@@ -10,7 +10,7 @@
 
 source /coc/testnvme/$USER/.bashrc
 conda activate lerobot
-
+cd /coc/testnvme/$USER/lerobot_iql
 export PYTHONPATH="$PWD/src:${PYTHONPATH}"
 
 CHECKPOINT=${3:-last}
@@ -26,7 +26,6 @@ fi
 python src/lerobot/scripts/lerobot_pi05_value_inference.py \
   --policy-path=outputs/$1/checkpoints/$CHECKPOINT/pretrained_model \
   --dataset-root=/coc/testnvme/jcoholich3/lerobot_data/$2 \
-  --repo-id=$2 \
   --output-dir=/coc/testnvme/jcoholich3/reward-modeling/viewer_files \
   --manifest-name="${RUN_NAME}.json" \
   --video-prefix="$VIDEO_PREFIX" \
