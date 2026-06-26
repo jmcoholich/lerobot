@@ -36,6 +36,7 @@ TRAIN_CONFIG_NAME = "train_config.json"
 @dataclass
 class TrainPipelineConfig(HubMixin):
     dataset: DatasetConfig
+    test_dataset: DatasetConfig | None = None
     env: envs.EnvConfig | None = None
     policy: PreTrainedConfig | None = None
     # Set `dir` to where you would like to save all of the run outputs. If you run another training session
@@ -54,6 +55,9 @@ class TrainPipelineConfig(HubMixin):
     num_workers: int = 4
     batch_size: int = 8
     steps: int = 100_000
+    test_freq: int = 1_000
+    test_batch_size: int = 48
+    test_frame_stride: int = 20
     eval_freq: int = 20_000
     log_freq: int = 200
     tolerance_s: float = 1e-4

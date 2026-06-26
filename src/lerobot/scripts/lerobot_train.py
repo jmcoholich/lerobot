@@ -204,6 +204,59 @@ def add_iql_raw_prediction_stats(output_dict: dict, payload: dict | None, datase
     output_dict[f"{kind}_abs_error_raw_mean"] = raw_abs_error.mean().item()
 
 
+def evaluate_scalar_predictor(policy, dataloader, preprocessor, accelerator, dataset_stats) -> dict:
+    """Evaluate an IQL scalar predictor without retaining activations for a backward pass."""
+    totals = {}
+    counts = {}
+
+    def update_metric(name: str, values: torch.Tensor) -> None:
+        totals[name] = totals.get(name, 0.0) + values.float().sum().item()
+        counts[name] = counts.get(name, 0) + values.numel()
+
+    start_time = time.perf_counter()
+    policy.eval()
+    with torch.no_grad():
+        for batch in dataloader:
+            batch = preprocessor(batch)
+            with accelerator.autocast():
+                _, output_dict = policy.forward(batch)
+            payload = pop_iql_prediction_payload(output_dict)
+            if payload is None:
+                raise ValueError("Test epochs require a value or Q-function policy.")
+
+            predictions, targets = accelerator.gather_for_metrics(
+                (payload["_iql_predictions"], payload["_iql_targets"])
+            )
+            kind = payload["_iql_prediction_kind"]
+            update_metric("loss", (predictions - targets).square())
+            update_metric("iql_prediction_mean", predictions)
+            update_metric("iql_target_mean", targets)
+            update_metric("iql_abs_error_mean", (predictions - targets).abs())
+            update_metric(f"{kind}_prediction_mean", predictions)
+            update_metric(f"{kind}_target_mean", targets)
+            update_metric(f"{kind}_abs_error_mean", (predictions - targets).abs())
+
+            raw_predictions = unnormalize_iql_target_tensor(
+                predictions, payload["_iql_target_key"], dataset_stats
+            )
+            raw_targets = unnormalize_iql_target_tensor(
+                targets, payload["_iql_target_key"], dataset_stats
+            )
+            if raw_predictions is not None and raw_targets is not None:
+                update_metric("iql_prediction_raw_mean", raw_predictions)
+                update_metric("iql_target_raw_mean", raw_targets)
+                update_metric("iql_abs_error_raw_mean", (raw_predictions - raw_targets).abs())
+                update_metric(f"{kind}_prediction_raw_mean", raw_predictions)
+                update_metric(f"{kind}_target_raw_mean", raw_targets)
+                update_metric(f"{kind}_abs_error_raw_mean", (raw_predictions - raw_targets).abs())
+
+    policy.train()
+    metrics = {name: totals[name] / counts[name] for name in totals}
+    metrics["num_samples"] = counts["loss"]
+    metrics["eval_s"] = time.perf_counter() - start_time
+    return metrics
+
+
 @parser.wrap()
 def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
     """
@@ -276,6 +329,16 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
     # Now all other processes can safely load the dataset
     if not is_main_process:
         dataset = make_dataset(cfg)
+
+    test_dataset = None
+    if cfg.test_dataset is not None:
+        test_cfg = dataclasses.replace(cfg, dataset=cfg.test_dataset)
+        if is_main_process:
+            logging.info("Creating test dataset")
+            test_dataset = make_dataset(test_cfg)
+        accelerator.wait_for_everyone()
+        if not is_main_process:
+            test_dataset = make_dataset(test_cfg)
 
     # Create environment used for evaluating checkpoints during training on simulation data.
     # On real-world data, no need to create an environment as evaluations are done outside train.py,
@@ -424,12 +487,23 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         drop_last=False,
         prefetch_factor=2 if cfg.num_workers > 0 else None,
     )
+    test_dataloader = None
+    if test_dataset is not None:
+        test_dataloader = torch.utils.data.DataLoader(
+            torch.utils.data.Subset(test_dataset, range(0, len(test_dataset), cfg.test_frame_stride)),
+            num_workers=cfg.num_workers,
+            batch_size=cfg.test_batch_size,
+            pin_memory=device.type == "cuda",
+            prefetch_factor=2 if cfg.num_workers > 0 else None,
+        )
 
     # Prepare everything with accelerator
     accelerator.wait_for_everyone()
     policy, optimizer, dataloader, lr_scheduler = accelerator.prepare(
         policy, optimizer, dataloader, lr_scheduler
     )
+    if test_dataloader is not None:
+        test_dataloader = accelerator.prepare(test_dataloader)
     dl_iter = cycle(dataloader)
 
     policy.train()
@@ -485,6 +559,7 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         is_iql_sample_step = step % 500 == 0 and is_main_process
         is_saving_step = step % cfg.save_freq == 0 or step == cfg.steps
         is_eval_step = cfg.eval_freq > 0 and step % cfg.eval_freq == 0
+        is_test_step = cfg.test_freq > 0 and step % cfg.test_freq == 0
 
         if is_log_step:
             logging.info(train_tracker)
@@ -539,6 +614,15 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
                 #     wandb_logger.log_policy(checkpoint_dir)
 
             accelerator.wait_for_everyone()
+
+        if test_dataloader is not None and is_test_step:
+            test_metrics = evaluate_scalar_predictor(
+                policy, test_dataloader, preprocessor, accelerator, dataset.meta.stats
+            )
+            if is_main_process:
+                logging.info("Test metrics at step %s: %s", step, test_metrics)
+                if wandb_logger:
+                    wandb_logger.log_dict(test_metrics, step, mode="test")
 
         if cfg.env and is_eval_step:
             if is_main_process:

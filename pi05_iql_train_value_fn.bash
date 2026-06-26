@@ -10,6 +10,7 @@
 JOB_NAME=$1
 VALUE_KEY=${2:-returns_gamma_0.995}
 INIT=${3:-paligemma}
+TEST_DATASET=${4:-walle_skywalker_testset}
 PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
 PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 OUTDIR=./outputs/$JOB_NAME
@@ -22,6 +23,7 @@ echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
 echo "Value key: $VALUE_KEY"
 echo "Init: $INIT"
+echo "Test dataset: $TEST_DATASET"
 
 if [ "$INIT" = "paligemma" ]; then
     INIT_ARGS=(--policy.paligemma_pretrained_path="$PALIGEMMA_PRETRAINED_PATH")
@@ -42,6 +44,8 @@ export PYTHONPATH="$PWD/src:${PYTHONPATH}"
 python src/lerobot/scripts/lerobot_train.py\
     --dataset.repo_id=$DATASET \
     --dataset.root="$DATA_ROOT/$DATASET" \
+    --test_dataset.repo_id=$TEST_DATASET \
+    --test_dataset.root="$DATA_ROOT/$TEST_DATASET" \
     --policy.type=pi05 \
     --output_dir=$OUTDIR \
     --job_name=$JOB_NAME \
