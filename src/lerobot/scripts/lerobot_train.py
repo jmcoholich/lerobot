@@ -217,6 +217,7 @@ def evaluate_scalar_predictor(policy, dataloader, preprocessor, accelerator, dat
     policy.eval()
     with torch.no_grad():
         for batch in dataloader:
+            batch.pop("action", None)
             batch = preprocessor(batch)
             with accelerator.autocast():
                 _, output_dict = policy.forward(batch)
