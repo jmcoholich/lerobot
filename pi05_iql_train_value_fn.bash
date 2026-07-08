@@ -11,6 +11,7 @@ JOB_NAME=$1
 VALUE_KEY=${2:-returns_gamma_0.995}
 INIT=${3:-paligemma}
 TEST_DATASET=${4:-walle_skywalker_testset}
+WEIGHT_DECAY=${5:-0.01}
 PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
 PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 OUTDIR=./outputs/$JOB_NAME
@@ -24,6 +25,7 @@ echo "Output dir: $OUTDIR"
 echo "Value key: $VALUE_KEY"
 echo "Init: $INIT"
 echo "Test dataset: $TEST_DATASET"
+echo "Weight decay: $WEIGHT_DECAY"
 
 if [ "$INIT" = "paligemma" ]; then
     INIT_ARGS=(--policy.paligemma_pretrained_path="$PALIGEMMA_PRETRAINED_PATH")
@@ -63,10 +65,13 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.value_dim=1 \
     --steps=6000 \
     --policy.optimizer_lr=$LR \
+    --policy.optimizer_weight_decay=$WEIGHT_DECAY \
     --policy.device=cuda \
     --batch_size=32 \
+    --test_freq=250 \
+    --test_frame_stride=10 \
     --log_freq=5 \
     --save_freq=1000 \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
 
-sbatch --array=1,5,45,50,51,52,53,54,55,56,57,58,59 pi05_value_inference_static.bash $1 plug5_offline_rl_dataset last 1,5,45,50,51,52,53,54,55,56,57,58,59
+# sbatch --array=1,5,45,50,51,52,53,54,55,56,57,58,59 pi05_value_inference_static.bash $1 plug5_offline_rl_dataset last 1,5,45,50,51,52,53,54,55,56,57,58,59

@@ -9,6 +9,7 @@
 
 JOB_NAME=$1
 Q_KEY=${2:-q_values}
+WEIGHT_DECAY=${3:-0.01}
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=100
 LR=5e-5
@@ -19,6 +20,7 @@ DATA_ROOT=/coc/testnvme/jcoholich3/lerobot_data
 echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
 echo "Q key: $Q_KEY"
+echo "Weight decay: $WEIGHT_DECAY"
 
 source /coc/testnvme/$USER/.bashrc
 conda activate lerobot
@@ -47,6 +49,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.n_action_steps=$CHUNK \
     --steps=6000 \
     --policy.optimizer_lr=$LR \
+    --policy.optimizer_weight_decay=$WEIGHT_DECAY \
     --policy.device=cuda \
     --batch_size=32 \
     --log_freq=5 \
