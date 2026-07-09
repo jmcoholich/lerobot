@@ -87,6 +87,7 @@ class PI05Config(PreTrainedConfig):
     use_q_model: bool = False  # Use the action-conditioned scalar Q-value model.
     q_key: str = "q_values"  # Batch key to regress when use_q_model is enabled.
     q_dim: int = 1  # Number of scalar Q-values to predict.
+    drop_proprioception_input: bool = False  # Zero proprioception before it is tokenized into the prompt.
 
     # Optimizer settings: see openpi `AdamW`
     optimizer_lr: float = 2.5e-5  # see openpi `CosineDecaySchedule: peak_lr`

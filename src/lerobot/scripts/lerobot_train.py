@@ -394,6 +394,10 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             processor_kwargs["preprocessor_overrides"]["normalizer_processor"][
                 "normalize_complementary_data_keys"
             ] = [cfg.policy.q_key]
+        if cfg.policy.type == "pi05":
+            processor_kwargs["preprocessor_overrides"]["pi05_prepare_state_tokenizer_processor_step"] = {
+                "drop_proprioception_input": cfg.policy.drop_proprioception_input
+            }
         processor_kwargs["preprocessor_overrides"]["rename_observations_processor"] = {
             "rename_map": cfg.rename_map
         }
