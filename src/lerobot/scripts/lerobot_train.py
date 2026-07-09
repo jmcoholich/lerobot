@@ -396,7 +396,9 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             ] = [cfg.policy.q_key]
         if cfg.policy.type == "pi05":
             processor_kwargs["preprocessor_overrides"]["pi05_prepare_state_tokenizer_processor_step"] = {
-                "drop_proprioception_input": cfg.policy.drop_proprioception_input
+                "drop_proprioception_input": cfg.policy.drop_proprioception_input,
+                "input_dropout_percent": cfg.policy.input_dropout_percent,
+                "image_keys": tuple(cfg.policy.image_features.keys()),
             }
         processor_kwargs["preprocessor_overrides"]["rename_observations_processor"] = {
             "rename_map": cfg.rename_map

@@ -55,11 +55,23 @@ class Pi05PrepareStateTokenizerProcessorStep(ProcessorStep):
     max_state_dim: int = 32
     task_key: str = "task"
     drop_proprioception_input: bool = False
+    input_dropout_percent: float = 0.0
+    image_keys: tuple[str, ...] = ()
+
+    def _drop_input(self, tensor: torch.Tensor) -> torch.Tensor:
+        if self.input_dropout_percent <= 0 or not torch.is_grad_enabled():
+            return tensor
+
+        batch_size = tensor.shape[0]
+        keep_shape = (batch_size,) + (1,) * (tensor.ndim - 1)
+        keep = torch.rand(keep_shape, device=tensor.device) >= self.input_dropout_percent / 100.0
+        return tensor * keep.to(dtype=tensor.dtype)
 
     def __call__(self, transition: EnvTransition) -> EnvTransition:
         transition = transition.copy()
 
-        state = transition.get(TransitionKey.OBSERVATION, {}).get(OBS_STATE)
+        observation = transition.get(TransitionKey.OBSERVATION, {})
+        state = observation.get(OBS_STATE)
         if state is None:
             raise ValueError("State is required for PI05")
         tasks = transition.get(TransitionKey.COMPLEMENTARY_DATA, {}).get(self.task_key)
@@ -73,6 +85,13 @@ class Pi05PrepareStateTokenizerProcessorStep(ProcessorStep):
         state = pad_vector(state, self.max_state_dim)
         if self.drop_proprioception_input:
             state = torch.zeros_like(state)
+        else:
+            state = self._drop_input(state)
+
+        if self.input_dropout_percent > 0:
+            for image_key in self.image_keys:
+                if image_key in observation:
+                    observation[image_key] = self._drop_input(observation[image_key])
 
         # State should already be normalized to [-1, 1] by the NormalizerProcessorStep that runs before this step
         # Discretize into 256 bins (see openpi `PaligemmaTokenizer.tokenize()`)
@@ -104,6 +123,8 @@ class Pi05PrepareStateTokenizerProcessorStep(ProcessorStep):
             "max_state_dim": self.max_state_dim,
             "task_key": self.task_key,
             "drop_proprioception_input": self.drop_proprioception_input,
+            "input_dropout_percent": self.input_dropout_percent,
+            "image_keys": self.image_keys,
         }
 
 
@@ -159,6 +180,8 @@ def make_pi05_pre_post_processors(
         Pi05PrepareStateTokenizerProcessorStep(
             max_state_dim=config.max_state_dim,
             drop_proprioception_input=config.drop_proprioception_input,
+            input_dropout_percent=config.input_dropout_percent,
+            image_keys=tuple(config.image_features.keys()),
         ),
         TokenizerProcessorStep(
             tokenizer_name="google/paligemma-3b-pt-224",

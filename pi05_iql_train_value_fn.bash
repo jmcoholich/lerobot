@@ -13,6 +13,7 @@ INIT=${3:-paligemma}
 TEST_DATASET=${4:-walle_skywalker_testset}
 WEIGHT_DECAY=${5:-0.01}
 DROP_PROPRIOCEPTION_INPUT=${6:-false}
+INPUT_DROPOUT_PERCENT=${7:-0}
 PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
 PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 OUTDIR=./outputs/$JOB_NAME
@@ -28,6 +29,7 @@ echo "Init: $INIT"
 echo "Test dataset: $TEST_DATASET"
 echo "Weight decay: $WEIGHT_DECAY"
 echo "Drop proprioception input: $DROP_PROPRIOCEPTION_INPUT"
+echo "Input dropout percent: $INPUT_DROPOUT_PERCENT"
 
 if [ "$INIT" = "paligemma" ]; then
     INIT_ARGS=(--policy.paligemma_pretrained_path="$PALIGEMMA_PRETRAINED_PATH")
@@ -69,6 +71,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.optimizer_lr=$LR \
     --policy.optimizer_weight_decay=$WEIGHT_DECAY \
     --policy.drop_proprioception_input=$DROP_PROPRIOCEPTION_INPUT \
+    --policy.input_dropout_percent=$INPUT_DROPOUT_PERCENT \
     --policy.device=cuda \
     --batch_size=32 \
     --test_freq=250 \

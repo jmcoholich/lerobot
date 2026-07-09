@@ -88,6 +88,7 @@ class PI05Config(PreTrainedConfig):
     q_key: str = "q_values"  # Batch key to regress when use_q_model is enabled.
     q_dim: int = 1  # Number of scalar Q-values to predict.
     drop_proprioception_input: bool = False  # Zero proprioception before it is tokenized into the prompt.
+    input_dropout_percent: float = 0.0  # Training-only probability to zero proprioception/images.
 
     # Optimizer settings: see openpi `AdamW`
     optimizer_lr: float = 2.5e-5  # see openpi `CosineDecaySchedule: peak_lr`
@@ -128,6 +129,9 @@ class PI05Config(PreTrainedConfig):
 
         if self.q_dim <= 0:
             raise ValueError(f"q_dim must be positive, got {self.q_dim}")
+
+        if not 0 <= self.input_dropout_percent <= 100:
+            raise ValueError(f"input_dropout_percent must be in [0, 100], got {self.input_dropout_percent}")
 
         if self.use_value_model and self.use_q_model:
             raise ValueError("use_value_model and use_q_model are mutually exclusive")
