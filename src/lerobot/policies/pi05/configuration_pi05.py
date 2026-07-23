@@ -81,7 +81,9 @@ class PI05Config(PreTrainedConfig):
     freeze_vision_encoder: bool = False  # Freeze only the vision encoder
     train_expert_only: bool = False  # Freeze entire VLM, train only action expert and projections
     use_value_model: bool = False  # Replace the action expert branch with a scalar value head.
+    value_backbone: str = "paligemma"  # Value backbone: "paligemma" or "smolvlm".
     paligemma_pretrained_path: str | None = None  # Optional base PaliGemma checkpoint for value models.
+    smolvlm_pretrained_path: str = "HuggingFaceTB/SmolVLM2-256M-Video-Instruct"
     value_key: str = "returns_gamma_0.995"  # Batch key to regress when use_value_model is enabled.
     value_dim: int = 2  # Number of scalar values to predict.
     use_q_model: bool = False  # Use the action-conditioned scalar Q-value model.
@@ -136,8 +138,17 @@ class PI05Config(PreTrainedConfig):
         if self.use_value_model and self.use_q_model:
             raise ValueError("use_value_model and use_q_model are mutually exclusive")
 
+        if self.value_backbone not in ["paligemma", "smolvlm"]:
+            raise ValueError(f"Invalid value_backbone: {self.value_backbone}")
+
+        if not self.use_value_model and self.value_backbone != "paligemma":
+            raise ValueError("value_backbone is only supported with use_value_model=true")
+
         if self.paligemma_pretrained_path is not None and not self.use_value_model:
             raise ValueError("paligemma_pretrained_path is only supported with use_value_model=true")
+
+        if self.paligemma_pretrained_path is not None and self.value_backbone != "paligemma":
+            raise ValueError("paligemma_pretrained_path requires value_backbone='paligemma'")
 
         if self.paligemma_pretrained_path is not None and self.pretrained_path is not None:
             raise ValueError(

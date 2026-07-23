@@ -165,7 +165,6 @@ def make_pi05_pre_post_processors(
     elif config.use_q_model:
         normalize_complementary_data_keys = {config.q_key}
 
-    # Add remaining processors
     input_steps: list[ProcessorStep] = [
         RenameObservationsProcessorStep(rename_map={}),  # To mimic the same processor as pretrained one
         AddBatchDimensionProcessorStep(),
@@ -177,20 +176,28 @@ def make_pi05_pre_post_processors(
             stats=dataset_stats,
             normalize_complementary_data_keys=normalize_complementary_data_keys,
         ),
-        Pi05PrepareStateTokenizerProcessorStep(
-            max_state_dim=config.max_state_dim,
-            drop_proprioception_input=config.drop_proprioception_input,
-            input_dropout_percent=config.input_dropout_percent,
-            image_keys=tuple(config.image_features.keys()),
-        ),
-        TokenizerProcessorStep(
-            tokenizer_name="google/paligemma-3b-pt-224",
-            max_length=config.tokenizer_max_length,
-            padding_side="right",
-            padding="max_length",
-        ),
-        DeviceProcessorStep(device=config.device),
     ]
+    if config.use_value_model and config.value_backbone == "smolvlm":
+        # The SmolVLM value model consumes images and proprioception directly.
+        input_steps.append(DeviceProcessorStep(device=config.device))
+    else:
+        input_steps.extend(
+            [
+                Pi05PrepareStateTokenizerProcessorStep(
+                    max_state_dim=config.max_state_dim,
+                    drop_proprioception_input=config.drop_proprioception_input,
+                    input_dropout_percent=config.input_dropout_percent,
+                    image_keys=tuple(config.image_features.keys()),
+                ),
+                TokenizerProcessorStep(
+                    tokenizer_name="google/paligemma-3b-pt-224",
+                    max_length=config.tokenizer_max_length,
+                    padding_side="right",
+                    padding="max_length",
+                ),
+                DeviceProcessorStep(device=config.device),
+            ]
+        )
 
     output_steps: list[ProcessorStep] = [
         UnnormalizerProcessorStep(

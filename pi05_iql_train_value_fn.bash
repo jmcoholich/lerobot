@@ -15,6 +15,7 @@ WEIGHT_DECAY=${5:-0.01}
 DROP_PROPRIOCEPTION_INPUT=${6:-false}
 INPUT_DROPOUT_PERCENT=${7:-0}
 PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
+SMOLVLM_PRETRAINED_PATH=HuggingFaceTB/SmolVLM2-256M-Video-Instruct
 PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 OUTDIR=./outputs/$JOB_NAME
 LR=5e-5
@@ -37,8 +38,14 @@ if [ "$INIT" = "paligemma" ]; then
 elif [ "$INIT" = "pi05" ]; then
     INIT_ARGS=(--policy.pretrained_path="$PI05_BASE_PRETRAINED_PATH")
     echo "PI05 pretrained path: $PI05_BASE_PRETRAINED_PATH"
+elif [ "$INIT" = "smolvla" ] || [ "$INIT" = "smolvlm256m" ]; then
+    INIT_ARGS=(
+        --policy.value_backbone=smolvlm
+        --policy.smolvlm_pretrained_path="$SMOLVLM_PRETRAINED_PATH"
+    )
+    echo "SmolVLM pretrained path: $SMOLVLM_PRETRAINED_PATH"
 else
-    echo "Unknown init '$INIT' (expected 'paligemma' or 'pi05')" >&2
+    echo "Unknown init '$INIT' (expected 'paligemma', 'pi05', or 'smolvla')" >&2
     exit 1
 fi
 

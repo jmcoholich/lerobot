@@ -44,6 +44,7 @@ from lerobot.utils.constants import (
     ACTION,
     OBS_LANGUAGE_ATTENTION_MASK,
     OBS_LANGUAGE_TOKENS,
+    OBS_STATE,
     OPENPI_ATTENTION_MASK_VALUE,
     REWARD,
 )
@@ -1423,7 +1424,12 @@ class PI05Policy(PreTrainedPolicy):
         # Initialize the core PI05 model
         self.init_rtc_processor()
         if config.use_value_model:
-            self.model = PI05ValuePytorch(config)
+            if config.value_backbone == "smolvlm":
+                from lerobot.policies.pi05.modeling_smolvlm_value import SmolVLMValuePytorch
+
+                self.model = SmolVLMValuePytorch(config)
+            else:
+                self.model = PI05ValuePytorch(config)
         elif config.use_q_model:
             self.model = PI05QPytorch(config)
         else:
@@ -1479,9 +1485,9 @@ class PI05Policy(PreTrainedPolicy):
 
         with no_init_weights():
             model = cls(config, **kwargs)
-        if config.use_value_model:
+        if config.use_value_model and config.value_backbone == "paligemma":
             model.model.paligemma_backbone.paligemma.tie_weights()
-        else:
+        elif not config.use_value_model:
             model.model.paligemma_with_expert.paligemma.tie_weights()
 
         # Try to load the pytorch_model.bin or model.safetensors file
@@ -1702,12 +1708,21 @@ class PI05Policy(PreTrainedPolicy):
                 # Convert [B, C, H, W] to [B, H, W, C] for processing
                 img = img.permute(0, 2, 3, 1)
 
+            # SmolVLM uses the resize helper's native [-1, 1] convention so padded pixels stay black.
+            normalize_before_resize = (
+                self.config.use_value_model and self.config.value_backbone == "smolvlm"
+            )
+            if normalize_before_resize:
+                img = img * 2.0 - 1.0
+
             # from openpi preprocess_observation_pytorch: Resize with padding if needed
-            if img.shape[1:3] != self.config.image_resolution:
-                img = resize_with_pad_torch(img, *self.config.image_resolution)
+            image_resolution = getattr(self.model, "image_resolution", self.config.image_resolution)
+            if img.shape[1:3] != image_resolution:
+                img = resize_with_pad_torch(img, *image_resolution)
 
             # Normalize from [0,1] to [-1,1] as expected by siglip
-            img = img * 2.0 - 1.0
+            if not normalize_before_resize:
+                img = img * 2.0 - 1.0
 
             # from openpi preprocess_observation_pytorch: Convert back to [B, C, H, W] format if it was originally channels-first
             if is_channels_first:
@@ -1732,6 +1747,11 @@ class PI05Policy(PreTrainedPolicy):
         """Pad action"""
         actions = pad_vector(batch[ACTION], self.config.max_action_dim)
         return actions
+
+    def prepare_state(self, batch):
+        """Select the latest observation and pad proprioception."""
+        state = batch[OBS_STATE][:, -1] if batch[OBS_STATE].ndim > 2 else batch[OBS_STATE]
+        return pad_vector(state, self.config.max_state_dim)
 
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor]) -> Tensor:
@@ -1793,8 +1813,10 @@ class PI05Policy(PreTrainedPolicy):
         self.eval()
 
         images, img_masks = self._preprocess_images(batch)
-        tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
+        if self.config.value_backbone == "smolvlm":
+            return self.model.predict_values(images, img_masks, self.prepare_state(batch))
 
+        tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
         return self.model.predict_values(images, img_masks, tokens, masks)
 
     @staticmethod
@@ -1850,7 +1872,10 @@ class PI05Policy(PreTrainedPolicy):
         """
         # Prepare inputs
         images, img_masks = self._preprocess_images(batch)
-        tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
+        tokens = masks = None
+        if not (self.config.use_value_model and self.config.value_backbone == "smolvlm"):
+            tokens = batch[f"{OBS_LANGUAGE_TOKENS}"]
+            masks = batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
 
         if self.config.use_value_model:
             if self.config.value_key not in batch:
@@ -1858,7 +1883,7 @@ class PI05Policy(PreTrainedPolicy):
                     f"Expected value target key '{self.config.value_key}' in batch, "
                     f"but available keys are: {sorted(batch.keys())}"
                 )
-            values = batch[self.config.value_key].to(device=tokens.device, dtype=torch.float32)
+            values = batch[self.config.value_key].to(device=images[0].device, dtype=torch.float32)
             if values.ndim == 1:
                 values = values.unsqueeze(-1)
             if values.shape[-1] != self.config.value_dim:
@@ -1867,7 +1892,10 @@ class PI05Policy(PreTrainedPolicy):
                     f"{self.config.value_dim}, got {tuple(values.shape)}"
                 )
 
-            predictions = self.model.predict_values(images, img_masks, tokens, masks)
+            if self.config.value_backbone == "smolvlm":
+                predictions = self.model.predict_values(images, img_masks, self.prepare_state(batch))
+            else:
+                predictions = self.model.predict_values(images, img_masks, tokens, masks)
             losses = F.mse_loss(predictions, values, reduction="none")
             loss_dict = self._build_scalar_prediction_log(
                 kind="value",
@@ -1950,6 +1978,15 @@ class PI05Policy(PreTrainedPolicy):
     def _get_default_peft_targets(self) -> dict[str, any]:
         """Return default PEFT target modules for PI0.5 fine-tuning."""
         if self.config.use_value_model:
+            if self.config.value_backbone == "smolvlm":
+                target_modules = (
+                    r"(model\.vlm\.model\.text_model\..*\.(q|v)_proj|"
+                    r"model\.(state_proj|value_head)\..*)"
+                )
+                return {
+                    "target_modules": target_modules,
+                    "modules_to_save": [],
+                }
             target_modules = r"(.*\.paligemma_backbone\..*\.self_attn\.(q|v)_proj|model\.value_head\..*)"
             return {
                 "target_modules": target_modules,
