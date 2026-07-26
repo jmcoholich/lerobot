@@ -14,6 +14,7 @@ TEST_DATASET=${4:-walle_skywalker_testset}
 WEIGHT_DECAY=${5:-0.01}
 DROP_PROPRIOCEPTION_INPUT=${6:-false}
 INPUT_DROPOUT_PERCENT=${7:-0}
+SEED=${8:-1000}
 PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
 SMOLVLM_PRETRAINED_PATH=HuggingFaceTB/SmolVLM2-256M-Video-Instruct
 PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
@@ -31,6 +32,7 @@ echo "Test dataset: $TEST_DATASET"
 echo "Weight decay: $WEIGHT_DECAY"
 echo "Drop proprioception input: $DROP_PROPRIOCEPTION_INPUT"
 echo "Input dropout percent: $INPUT_DROPOUT_PERCENT"
+echo "Seed: $SEED"
 
 if [ "$INIT" = "paligemma" ]; then
     INIT_ARGS=(--policy.paligemma_pretrained_path="$PALIGEMMA_PRETRAINED_PATH")
@@ -60,6 +62,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --test_dataset.repo_id=$TEST_DATASET \
     --test_dataset.root="$DATA_ROOT/$TEST_DATASET" \
     --policy.type=pi05 \
+    --seed=$SEED \
     --output_dir=$OUTDIR \
     --job_name=$JOB_NAME \
     --policy.repo_id=your_repo_id \
