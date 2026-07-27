@@ -77,17 +77,18 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.use_value_model=true \
     --policy.value_key="$VALUE_KEY" \
     --policy.value_dim=1 \
-    --steps=6000 \
+    --steps=3000 \
     --policy.optimizer_lr=$LR \
     --policy.optimizer_weight_decay=$WEIGHT_DECAY \
     --policy.drop_proprioception_input=$DROP_PROPRIOCEPTION_INPUT \
     --policy.input_dropout_percent=$INPUT_DROPOUT_PERCENT \
     --policy.device=cuda \
     --batch_size=32 \
-    --test_freq=250 \
+    --test_freq=100 \
     --test_frame_stride=10 \
-    --log_freq=5 \
-    --save_freq=1000 \
+    --log_freq=100 \
+    --save_freq=0 \
+    --save_best_test_checkpoint=true \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
 
 # sbatch --array=1,5,45,50,51,52,53,54,55,56,57,58,59 pi05_value_inference_static.bash $1 plug5_offline_rl_dataset last 1,5,45,50,51,52,53,54,55,56,57,58,59

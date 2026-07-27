@@ -37,7 +37,7 @@ from lerobot.policies.factory import make_policy, make_pre_post_processors
 from lerobot.policies.pretrained import PreTrainedPolicy
 from lerobot.rl.wandb_utils import WandBLogger
 from lerobot.scripts.lerobot_eval import eval_policy_all
-from lerobot.utils.constants import OBS_STATE
+from lerobot.utils.constants import CHECKPOINTS_DIR, OBS_STATE
 from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.logging_utils import AverageMeter, MetricsTracker
 from lerobot.utils.random_utils import set_seed
@@ -539,6 +539,23 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             f"Start offline training on a fixed dataset, with effective batch size: {effective_batch_size}"
         )
 
+    best_test_loss = float("inf")
+
+    def save_policy_checkpoint(checkpoint_dir, label):
+        if is_main_process:
+            checkpoint_label = f" {label}" if label else ""
+            logging.info("Checkpoint%s policy after step %s", checkpoint_label, step)
+            save_checkpoint(
+                checkpoint_dir=checkpoint_dir,
+                step=step,
+                cfg=cfg,
+                policy=accelerator.unwrap_model(policy),
+                optimizer=optimizer,
+                scheduler=lr_scheduler,
+                preprocessor=preprocessor,
+                postprocessor=postprocessor,
+            )
+
     for _ in range(step, cfg.steps):
         start_time = time.perf_counter()
         batch = next(dl_iter)
@@ -564,7 +581,7 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         train_tracker.step()
         is_log_step = cfg.log_freq > 0 and step % cfg.log_freq == 0 and is_main_process
         is_iql_sample_step = step % 500 == 0 and is_main_process
-        is_saving_step = step % cfg.save_freq == 0 or step == cfg.steps
+        is_saving_step = (cfg.save_freq > 0 and step % cfg.save_freq == 0) or step == cfg.steps
         is_eval_step = cfg.eval_freq > 0 and step % cfg.eval_freq == 0
         is_test_step = cfg.test_freq > 0 and step % cfg.test_freq == 0
 
@@ -602,25 +619,14 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
                 raw_targets=iql_prediction_payload.get("_iql_raw_targets"),
             )
 
-        if cfg.save_checkpoint and is_saving_step:
+        if cfg.save_checkpoint and is_saving_step and not cfg.save_best_test_checkpoint:
+            checkpoint_dir = get_step_checkpoint_dir(cfg.output_dir, cfg.steps, step)
+            save_policy_checkpoint(checkpoint_dir, "")
             if is_main_process:
-                logging.info(f"Checkpoint policy after step {step}")
-                checkpoint_dir = get_step_checkpoint_dir(cfg.output_dir, cfg.steps, step)
-                save_checkpoint(
-                    checkpoint_dir=checkpoint_dir,
-                    step=step,
-                    cfg=cfg,
-                    policy=accelerator.unwrap_model(policy),
-                    optimizer=optimizer,
-                    scheduler=lr_scheduler,
-                    preprocessor=preprocessor,
-                    postprocessor=postprocessor,
-                )
                 update_last_checkpoint(checkpoint_dir)
-                # if wandb_logger:
-                #     wandb_logger.log_policy(checkpoint_dir)
-
             accelerator.wait_for_everyone()
+            # if wandb_logger:
+            #     wandb_logger.log_policy(checkpoint_dir)
 
         if test_dataloader is not None and is_test_step:
             test_metrics = evaluate_scalar_predictor(
@@ -630,6 +636,18 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
                 logging.info("Test metrics at step %s: %s", step, test_metrics)
                 if wandb_logger:
                     wandb_logger.log_dict(test_metrics, step, mode="test")
+            if (
+                cfg.save_checkpoint
+                and cfg.save_best_test_checkpoint
+                and test_metrics["loss"] < best_test_loss
+            ):
+                best_test_loss = test_metrics["loss"]
+                save_policy_checkpoint(cfg.output_dir / CHECKPOINTS_DIR / "best", "best")
+                accelerator.wait_for_everyone()
+
+        if cfg.save_checkpoint and cfg.save_best_test_checkpoint and step == cfg.steps:
+            save_policy_checkpoint(cfg.output_dir / CHECKPOINTS_DIR / "last", "last")
+            accelerator.wait_for_everyone()
 
         if cfg.env and is_eval_step:
             if is_main_process:
