@@ -6,7 +6,13 @@
 #SBATCH -c 12
 #SBATCH --mem=32G
 #SBATCH --qos=long
-#SBATCH --exclude=sonny,spd-13,ig-88
+#SBATCH --exclude=ig-88,megazord,cyborg
+
+if ! GPU_STATUS=$(nvidia-smi 2>&1) || [[ "$GPU_STATUS" == *ERR* ]]; then
+    echo "GPU is not available:" >&2
+    echo "$GPU_STATUS" >&2
+    exit 1
+fi
 
 JOB_NAME=${1:?Pass JOB_NAME as the first argument}
 VALUE_KEY=${VALUE_KEY:-sparse_returns_gamma_1.0}
@@ -23,7 +29,7 @@ PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
 SMOLVLM_PRETRAINED_PATH=HuggingFaceTB/SmolVLM2-256M-Video-Instruct
 PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 OUTDIR=./outputs/$JOB_NAME
-LR=2e-5
+LR=1e-5
 DATASET='plug5_offline_rl_dataset'
 DATA_ROOT=/coc/testnvme/jcoholich3/lerobot_data
 # DATA_ROOT=/data3/lerobot_data
@@ -83,6 +89,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.value_dim=1 \
     --steps=3000 \
     --policy.optimizer_lr=$LR \
+    --policy.scheduler_warmup_steps=3000 \
     --policy.optimizer_weight_decay=$WEIGHT_DECAY \
     --policy.drop_proprioception_input=$DROP_PROPRIOCEPTION_INPUT \
     --policy.input_dropout_percent=$INPUT_DROPOUT_PERCENT \
