@@ -579,11 +579,17 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         # increment `step` here.
         step += 1
         train_tracker.step()
-        is_log_step = cfg.log_freq > 0 and step % cfg.log_freq == 0 and is_main_process
+        is_log_step = (
+            cfg.log_freq > 0
+            and (step % cfg.log_freq == 0 or (cfg.log_first_step and step == 1))
+            and is_main_process
+        )
         is_iql_sample_step = step % 500 == 0 and is_main_process
         is_saving_step = (cfg.save_freq > 0 and step % cfg.save_freq == 0) or step == cfg.steps
         is_eval_step = cfg.eval_freq > 0 and step % cfg.eval_freq == 0
-        is_test_step = cfg.test_freq > 0 and step % cfg.test_freq == 0
+        is_test_step = cfg.test_freq > 0 and (
+            step % cfg.test_freq == 0 or (cfg.test_first_step and step == 1)
+        )
 
         if is_log_step:
             logging.info(train_tracker)

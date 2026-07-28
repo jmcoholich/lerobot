@@ -6,20 +6,24 @@
 #SBATCH -c 12
 #SBATCH --mem=32G
 #SBATCH --qos=long
+#SBATCH --exclude=sonny,spd-13,ig-88
 
-JOB_NAME=$1
-VALUE_KEY=${2:-returns_gamma_0.995}
-INIT=${3:-paligemma}
-TEST_DATASET=${4:-walle_skywalker_testset}
-WEIGHT_DECAY=${5:-0.01}
-DROP_PROPRIOCEPTION_INPUT=${6:-false}
-INPUT_DROPOUT_PERCENT=${7:-0}
-SEED=${8:-1000}
+JOB_NAME=${1:?Pass JOB_NAME as the first argument}
+VALUE_KEY=${VALUE_KEY:-sparse_returns_gamma_1.0}
+INIT=${INIT:-paligemma}
+TEST_DATASET=${TEST_DATASET:-walle_skywalker_testset}
+WEIGHT_DECAY=${WEIGHT_DECAY:-0.01}
+DROP_PROPRIOCEPTION_INPUT=${DROP_PROPRIOCEPTION_INPUT:-false}
+INPUT_DROPOUT_PERCENT=${INPUT_DROPOUT_PERCENT:-0}
+SEED=${SEED:-1000}
+if [ "$SEED" != "1000" ]; then
+    JOB_NAME="${JOB_NAME}_seed_${SEED}"
+fi
 PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
 SMOLVLM_PRETRAINED_PATH=HuggingFaceTB/SmolVLM2-256M-Video-Instruct
 PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 OUTDIR=./outputs/$JOB_NAME
-LR=5e-5
+LR=2e-5
 DATASET='plug5_offline_rl_dataset'
 DATA_ROOT=/coc/testnvme/jcoholich3/lerobot_data
 # DATA_ROOT=/data3/lerobot_data
@@ -85,10 +89,12 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.device=cuda \
     --batch_size=32 \
     --test_freq=100 \
+    --test_first_step=true \
     --test_frame_stride=10 \
     --log_freq=100 \
+    --log_first_step=true \
     --save_freq=0 \
     --save_best_test_checkpoint=true \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
 
-# sbatch --array=1,5,45,50,51,52,53,54,55,56,57,58,59 pi05_value_inference_static.bash $1 plug5_offline_rl_dataset last 1,5,45,50,51,52,53,54,55,56,57,58,59
+# sbatch --array=1,5,45,50,51,52,53,54,55,56,57,58,59 pi05_value_inference_static.bash "$JOB_NAME" plug5_offline_rl_dataset last 1,5,45,50,51,52,53,54,55,56,57,58,59

@@ -8,7 +8,7 @@
 #SBATCH --mem=32G
 #SBATCH --qos=short
 #SBATCH --output=slurm-%A_%a.out
-#SBATCH --exclude=sonny,spd-13
+#SBATCH --exclude=sonny,spd-13,ig-88
 
 set -euo pipefail
 
