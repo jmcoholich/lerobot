@@ -54,8 +54,18 @@ def resolve_delta_timestamps(
             returns `None` if the resulting dict is empty.
     """
     delta_timestamps = {}
+    if getattr(cfg, "value_bootstrap_steps", 0) > 0:
+        required_keys = {cfg.value_reward_key, cfg.value_key}
+        missing_keys = required_keys.difference(ds_meta.features)
+        if missing_keys:
+            raise ValueError(
+                "Value bootstrapping requires dataset reward and Monte-Carlo evaluation features; "
+                f"missing {sorted(missing_keys)}"
+            )
+
+    reward_keys = {REWARD, getattr(cfg, "value_reward_key", REWARD)}
     for key in ds_meta.features:
-        if key == REWARD and cfg.reward_delta_indices is not None:
+        if key in reward_keys and cfg.reward_delta_indices is not None:
             delta_timestamps[key] = [i / ds_meta.fps for i in cfg.reward_delta_indices]
         if key == ACTION and cfg.action_delta_indices is not None:
             delta_timestamps[key] = [i / ds_meta.fps for i in cfg.action_delta_indices]

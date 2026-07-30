@@ -160,7 +160,7 @@ def make_pi05_pre_post_processors(
         A tuple containing the configured pre-processor and post-processor pipelines.
     """
     normalize_complementary_data_keys = None
-    if config.use_value_model:
+    if config.use_value_model and config.value_bootstrap_steps == 0:
         normalize_complementary_data_keys = {config.value_key}
     elif config.use_q_model:
         normalize_complementary_data_keys = {config.q_key}

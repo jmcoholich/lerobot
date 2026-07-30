@@ -7,11 +7,19 @@
 #SBATCH --mem=32G
 #SBATCH --qos=short
 #SBATCH --array=0-297%20
+#SBATCH --exclude=ig-88,megazord,cyborg,megazord,sonny,spd-13
 
 source /coc/testnvme/$USER/.bashrc
 conda activate lerobot
 cd /coc/testnvme/$USER/lerobot_iql
 export PYTHONPATH="$PWD/src:${PYTHONPATH}"
+
+echo "Hostname: $(hostname)"
+if ! GPU_STATUS=$(nvidia-smi 2>&1) || [[ "$GPU_STATUS" == *ERR* ]]; then
+    echo "GPU is not available:" >&2
+    echo "$GPU_STATUS" >&2
+    exit 1
+fi
 
 CHECKPOINT=${3:-last}
 RUN_NAME="$2"

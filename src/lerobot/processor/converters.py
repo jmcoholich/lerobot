@@ -173,6 +173,7 @@ def _extract_complementary_data(batch: dict[str, Any]) -> dict[str, Any]:
     task_index_key = {"task_index": batch["task_index"]} if "task_index" in batch else {}
     episode_index_key = {"episode_index": batch["episode_index"]} if "episode_index" in batch else {}
     reward_key = {"reward": batch["reward"]} if "reward" in batch else {}
+    sparse_reward_key = {"sparse_reward": batch["sparse_reward"]} if "sparse_reward" in batch else {}
     returns_keys = {
         k: v
         for k, v in batch.items()
@@ -192,6 +193,7 @@ def _extract_complementary_data(batch: dict[str, Any]) -> dict[str, Any]:
         **task_index_key,
         **episode_index_key,
         **reward_key,
+        **sparse_reward_key,
         **returns_keys,
         **q_keys,
     }

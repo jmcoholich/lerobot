@@ -389,7 +389,11 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         if cfg.policy.type == "pi05" and getattr(cfg.policy, "use_value_model", False):
             processor_kwargs["preprocessor_overrides"]["normalizer_processor"][
                 "normalize_complementary_data_keys"
-            ] = [cfg.policy.value_key]
+            ] = (
+                []
+                if getattr(cfg.policy, "value_bootstrap_steps", 0) > 0
+                else [cfg.policy.value_key]
+            )
         if cfg.policy.type == "pi05" and getattr(cfg.policy, "use_q_model", False):
             processor_kwargs["preprocessor_overrides"]["normalizer_processor"][
                 "normalize_complementary_data_keys"
@@ -611,8 +615,15 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             train_tracker.reset_averages()
 
         if wandb_logger and is_iql_sample_step and iql_prediction_payload is not None:
+            sample_batch = batch
+            if getattr(cfg.policy, "value_bootstrap_steps", 0) > 0:
+                sample_batch = dict(batch)
+                for key in (OBS_STATE, *cfg.policy.image_features):
+                    value = batch.get(key)
+                    if value is not None and value.ndim == len(cfg.policy.input_features[key].shape) + 2:
+                        sample_batch[key] = value[:, 0]
             wandb_logger.log_iql_prediction_samples(
-                batch=batch,
+                batch=sample_batch,
                 image_keys=list(cfg.policy.image_features.keys()),
                 state_key=OBS_STATE,
                 predictions=iql_prediction_payload["_iql_predictions"],

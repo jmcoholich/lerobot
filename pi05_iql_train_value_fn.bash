@@ -6,8 +6,9 @@
 #SBATCH -c 12
 #SBATCH --mem=32G
 #SBATCH --qos=long
-#SBATCH --exclude=ig-88,megazord,cyborg
+#SBATCH --exclude=ig-88,megazord,cyborg,megazord,sonny,spd-13
 
+echo "Hostname: $(hostname)"
 if ! GPU_STATUS=$(nvidia-smi 2>&1) || [[ "$GPU_STATUS" == *ERR* ]]; then
     echo "GPU is not available:" >&2
     echo "$GPU_STATUS" >&2
@@ -15,13 +16,31 @@ if ! GPU_STATUS=$(nvidia-smi 2>&1) || [[ "$GPU_STATUS" == *ERR* ]]; then
 fi
 
 JOB_NAME=${1:?Pass JOB_NAME as the first argument}
-VALUE_KEY=${VALUE_KEY:-sparse_returns_gamma_1.0}
-INIT=${INIT:-paligemma}
+INIT=${INIT:-smolvla}
+N_STEP=${N_STEP:-10}
+DISCOUNT=${DISCOUNT:-0.99}
+TAU=${TAU:-0.005}
 TEST_DATASET=${TEST_DATASET:-walle_skywalker_testset}
 WEIGHT_DECAY=${WEIGHT_DECAY:-0.01}
 DROP_PROPRIOCEPTION_INPUT=${DROP_PROPRIOCEPTION_INPUT:-false}
 INPUT_DROPOUT_PERCENT=${INPUT_DROPOUT_PERCENT:-0}
 SEED=${SEED:-1000}
+if ! [[ "$N_STEP" =~ ^[0-9]+$ ]]; then
+    echo "N_STEP must be a non-negative integer, got '$N_STEP'" >&2
+    exit 1
+fi
+if ! DISCOUNT_KEY=$(printf "%.10g" "$DISCOUNT" 2>/dev/null); then
+    echo "DISCOUNT must be numeric, got '$DISCOUNT'" >&2
+    exit 1
+fi
+if [ "$DISCOUNT_KEY" = "1" ]; then
+    DISCOUNT_KEY=1.0
+fi
+VALUE_KEY=${VALUE_KEY:-sparse_returns_gamma_${DISCOUNT_KEY}}
+if [ "$N_STEP" -gt 0 ] && [ "$INIT" != "smolvla" ] && [ "$INIT" != "smolvlm256m" ]; then
+    echo "Value bootstrapping (N_STEP > 0) requires INIT=smolvla (or smolvlm256m)" >&2
+    exit 1
+fi
 if [ "$SEED" != "1000" ]; then
     JOB_NAME="${JOB_NAME}_seed_${SEED}"
 fi
@@ -38,6 +57,10 @@ echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
 echo "Value key: $VALUE_KEY"
 echo "Init: $INIT"
+echo "N-step return horizon: $N_STEP"
+echo "Discount factor: $DISCOUNT"
+echo "Reward key: sparse_reward"
+echo "Target network tau: $TAU"
 echo "Test dataset: $TEST_DATASET"
 echo "Weight decay: $WEIGHT_DECAY"
 echo "Drop proprioception input: $DROP_PROPRIOCEPTION_INPUT"
@@ -87,6 +110,10 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.use_value_model=true \
     --policy.value_key="$VALUE_KEY" \
     --policy.value_dim=1 \
+    --policy.value_bootstrap_steps="$N_STEP" \
+    --policy.value_discount="$DISCOUNT" \
+    --policy.value_reward_key=sparse_reward \
+    --policy.value_target_tau="$TAU" \
     --steps=3000 \
     --policy.optimizer_lr=$LR \
     --policy.scheduler_warmup_steps=3000 \

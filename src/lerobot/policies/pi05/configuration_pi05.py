@@ -86,6 +86,10 @@ class PI05Config(PreTrainedConfig):
     smolvlm_pretrained_path: str = "HuggingFaceTB/SmolVLM2-256M-Video-Instruct"
     value_key: str = "returns_gamma_0.995"  # Batch key to regress when use_value_model is enabled.
     value_dim: int = 2  # Number of scalar values to predict.
+    value_bootstrap_steps: int = 0  # Number of reward steps before bootstrapping; 0 disables it.
+    value_discount: float = 0.99
+    value_reward_key: str = "sparse_reward"
+    value_target_tau: float = 0.005
     use_q_model: bool = False  # Use the action-conditioned scalar Q-value model.
     q_key: str = "q_values"  # Batch key to regress when use_q_model is enabled.
     q_dim: int = 1  # Number of scalar Q-values to predict.
@@ -129,6 +133,17 @@ class PI05Config(PreTrainedConfig):
         if self.value_dim <= 0:
             raise ValueError(f"value_dim must be positive, got {self.value_dim}")
 
+        if self.value_bootstrap_steps < 0:
+            raise ValueError(
+                f"value_bootstrap_steps must be non-negative, got {self.value_bootstrap_steps}"
+            )
+
+        if not 0 <= self.value_discount <= 1:
+            raise ValueError(f"value_discount must be in [0, 1], got {self.value_discount}")
+
+        if not 0 <= self.value_target_tau <= 1:
+            raise ValueError(f"value_target_tau must be in [0, 1], got {self.value_target_tau}")
+
         if self.q_dim <= 0:
             raise ValueError(f"q_dim must be positive, got {self.q_dim}")
 
@@ -143,6 +158,17 @@ class PI05Config(PreTrainedConfig):
 
         if not self.use_value_model and self.value_backbone != "paligemma":
             raise ValueError("value_backbone is only supported with use_value_model=true")
+
+        if self.value_bootstrap_steps > 0 and (
+            not self.use_value_model or self.value_backbone != "smolvlm"
+        ):
+            raise ValueError(
+                "Value bootstrapping requires use_value_model=true and value_backbone='smolvlm'"
+            )
+        if self.value_bootstrap_steps > 0 and self.value_dim != 1:
+            raise ValueError("Value bootstrapping requires value_dim=1")
+        if self.value_bootstrap_steps > 0 and not self.value_reward_key:
+            raise ValueError("value_reward_key must be non-empty when value bootstrapping is enabled")
 
         if self.paligemma_pretrained_path is not None and not self.use_value_model:
             raise ValueError("paligemma_pretrained_path is only supported with use_value_model=true")
@@ -204,7 +230,9 @@ class PI05Config(PreTrainedConfig):
         )
 
     @property
-    def observation_delta_indices(self) -> None:
+    def observation_delta_indices(self) -> list[int] | None:
+        if self.value_bootstrap_steps > 0:
+            return [0, self.value_bootstrap_steps]
         return None
 
     @property
@@ -212,5 +240,7 @@ class PI05Config(PreTrainedConfig):
         return list(range(self.chunk_size))
 
     @property
-    def reward_delta_indices(self) -> None:
+    def reward_delta_indices(self) -> list[int] | None:
+        if self.value_bootstrap_steps > 0:
+            return list(range(self.value_bootstrap_steps))
         return None

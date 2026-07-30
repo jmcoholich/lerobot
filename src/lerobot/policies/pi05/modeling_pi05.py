@@ -18,6 +18,7 @@ import builtins
 import logging
 import math
 from collections import deque
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
 
@@ -1435,11 +1436,19 @@ class PI05Policy(PreTrainedPolicy):
         else:
             self.model = PI05Pytorch(config, rtc_processor=self.rtc_processor)
 
+        self.model_target = None
+        if config.value_bootstrap_steps > 0:
+            self.model_target = deepcopy(self.model)
+            self.model_target.requires_grad_(False)
+            self.model_target.eval()
+
         # Enable gradient checkpointing if requested
         if config.gradient_checkpointing:
             self.model.gradient_checkpointing_enable()
 
         self.model.to(config.device)
+        if self.model_target is not None:
+            self.model_target.to(config.device)
 
         self.reset()
 
@@ -1509,6 +1518,7 @@ class PI05Policy(PreTrainedPolicy):
 
         # First, fix any key differences # see openpi `model.py, _fix_pytorch_state_dict_keys`
         fixed_state_dict = model._fix_pytorch_state_dict_keys(original_state_dict, model.config)
+        has_model_target = any(key.startswith("model_target.") for key in fixed_state_dict)
 
         # Then add "model." prefix for all keys that don't already have it
         remapped_state_dict = {}
@@ -1518,7 +1528,7 @@ class PI05Policy(PreTrainedPolicy):
             if config.use_value_model and key.startswith("paligemma_with_expert.paligemma."):
                 key = key.replace("paligemma_with_expert.paligemma.", "paligemma_backbone.paligemma.", 1)
 
-            if not key.startswith("model."):
+            if not key.startswith(("model.", "model_target.")):
                 new_key = f"model.{key}"
                 remapped_state_dict[new_key] = value
                 remap_count += 1
@@ -1538,6 +1548,8 @@ class PI05Policy(PreTrainedPolicy):
                 "model.value_head.",
                 "model.paligemma_backbone.paligemma.model.language_model.embed_tokens.weight",
             )
+            if config.value_bootstrap_steps > 0 and not has_model_target:
+                allowed_missing_prefixes += ("model_target.",)
             allowed_unexpected_prefixes = (
                 "model.paligemma_with_expert.gemma_expert.",
                 "model.action_in_proj.",
@@ -1545,6 +1557,8 @@ class PI05Policy(PreTrainedPolicy):
                 "model.time_mlp_in.",
                 "model.time_mlp_out.",
             )
+            if config.value_bootstrap_steps == 0:
+                allowed_unexpected_prefixes += ("model_target.",)
             bad_missing = [key for key in missing_keys if not key.startswith(allowed_missing_prefixes)]
             bad_unexpected = [
                 key for key in unexpected_keys if not key.startswith(allowed_unexpected_prefixes)
@@ -1577,6 +1591,8 @@ class PI05Policy(PreTrainedPolicy):
             raise RuntimeError(
                 f"Unexpected missing or unexpected keys: missing={bad_missing}, unexpected={bad_unexpected}"
             )
+        if config.value_bootstrap_steps > 0 and not has_model_target:
+            model._sync_model_target()
         print("All keys loaded successfully!")
 
         return model
@@ -1640,7 +1656,43 @@ class PI05Policy(PreTrainedPolicy):
         return fixed_state_dict
 
     def get_optim_params(self) -> dict:
-        return self.parameters()
+        return self.model.parameters()
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if self.model_target is not None:
+            self.model_target.eval()
+        return self
+
+    @torch.no_grad()
+    def _sync_model_target(self):
+        self.model_target.load_state_dict(self.model.state_dict())
+        self.model_target.eval()
+
+    @torch.no_grad()
+    def update(self):
+        """Polyak-average the value target network after an optimizer update."""
+        if self.model_target is None:
+            return
+
+        tau = self.config.value_target_tau
+        for (target_name, target_param), (name, param) in zip(
+            self.model_target.named_parameters(),
+            self.model.named_parameters(),
+            strict=True,
+        ):
+            if target_name != name:
+                raise RuntimeError(f"Target parameter mismatch: {target_name} != {name}")
+            target_param.lerp_(param.to(dtype=target_param.dtype), tau)
+
+        for (target_name, target_buffer), (name, buffer) in zip(
+            self.model_target.named_buffers(),
+            self.model.named_buffers(),
+            strict=True,
+        ):
+            if target_name != name:
+                raise RuntimeError(f"Target buffer mismatch: {target_name} != {name}")
+            target_buffer.copy_(buffer)
 
     def reset(self):
         """Reset internal state - called when environment resets."""
@@ -1753,6 +1805,85 @@ class PI05Policy(PreTrainedPolicy):
         state = batch[OBS_STATE][:, -1] if batch[OBS_STATE].ndim > 2 else batch[OBS_STATE]
         return pad_vector(state, self.config.max_state_dim)
 
+    def _select_value_observation_step(self, batch: dict[str, Tensor], step: int) -> dict[str, Tensor]:
+        """Select the current or bootstrap observation from a two-step dataset window."""
+        if self.config.value_bootstrap_steps == 0:
+            return batch
+
+        selected_batch = dict(batch)
+        observation_keys = (OBS_STATE, *self.config.image_features)
+        for key in observation_keys:
+            if key not in batch:
+                continue
+            value = batch[key]
+            expected_ndim = len(self.config.input_features[key].shape) + 2
+            if value.ndim == expected_ndim - 1 and step == 0:
+                continue
+            if value.ndim != expected_ndim or value.shape[1] != 2:
+                raise ValueError(
+                    f"Expected bootstrapped observation '{key}' to have a two-step time dimension, "
+                    f"got {tuple(value.shape)}"
+                )
+            selected_batch[key] = value[:, step]
+        return selected_batch
+
+    @torch.no_grad()
+    def _build_n_step_value_target(self, batch: dict[str, Tensor]) -> Tensor:
+        reward_key = self.config.value_reward_key
+        reward_pad_key = f"{reward_key}_is_pad"
+        observation_pad_key = f"{OBS_STATE}_is_pad"
+        for key in (reward_key, reward_pad_key, observation_pad_key):
+            if key not in batch:
+                raise KeyError(
+                    f"Expected n-step target key '{key}' in batch, "
+                    f"but available keys are: {sorted(batch.keys())}"
+                )
+
+        device = next(self.model.parameters()).device
+        rewards = batch[reward_key].to(device=device, dtype=torch.float32)
+        if rewards.ndim == 2:
+            rewards = rewards.unsqueeze(-1)
+        if rewards.ndim != 3 or rewards.shape[1] != self.config.value_bootstrap_steps:
+            raise ValueError(
+                f"Expected batch['{reward_key}'] to have shape "
+                f"(batch, {self.config.value_bootstrap_steps}, reward_dim), got {tuple(rewards.shape)}"
+            )
+
+        reward_is_pad = batch[reward_pad_key].to(device=device, dtype=torch.bool)
+        if reward_is_pad.shape != rewards.shape[:2]:
+            raise ValueError(
+                f"Expected batch['{reward_pad_key}'] to have shape {tuple(rewards.shape[:2])}, "
+                f"got {tuple(reward_is_pad.shape)}"
+            )
+
+        discounts = self.config.value_discount ** torch.arange(
+            self.config.value_bootstrap_steps,
+            device=device,
+            dtype=torch.float32,
+        )
+        reward_return = (
+            rewards * (~reward_is_pad).unsqueeze(-1) * discounts.view(1, -1, 1)
+        ).sum(dim=1)
+
+        future_batch = self._select_value_observation_step(batch, -1)
+        future_images, future_img_masks = self._preprocess_images(future_batch)
+        future_values = self.model_target.predict_values(
+            future_images,
+            future_img_masks,
+            self.prepare_state(future_batch),
+        ).to(dtype=torch.float32)
+
+        observation_is_pad = batch[observation_pad_key].to(device=device, dtype=torch.bool)
+        if observation_is_pad.ndim != 2 or observation_is_pad.shape[1] != 2:
+            raise ValueError(
+                f"Expected batch['{observation_pad_key}'] to have shape (batch, 2), "
+                f"got {tuple(observation_is_pad.shape)}"
+            )
+        bootstrap_mask = (~observation_is_pad[:, -1]).unsqueeze(-1)
+        return reward_return + (
+            self.config.value_discount**self.config.value_bootstrap_steps
+        ) * bootstrap_mask * future_values
+
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor]) -> Tensor:
         """Select a single action given environment observations."""
@@ -1812,18 +1943,22 @@ class PI05Policy(PreTrainedPolicy):
             raise NotImplementedError("predict_values is only supported when use_value_model is enabled.")
         self.eval()
 
-        images, img_masks = self._preprocess_images(batch)
+        value_batch = self._select_value_observation_step(batch, 0)
+        images, img_masks = self._preprocess_images(value_batch)
         if self.config.value_backbone == "smolvlm":
-            return self.model.predict_values(images, img_masks, self.prepare_state(batch))
+            return self.model.predict_values(images, img_masks, self.prepare_state(value_batch))
 
-        tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
+        tokens = value_batch[f"{OBS_LANGUAGE_TOKENS}"]
+        masks = value_batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
         return self.model.predict_values(images, img_masks, tokens, masks)
 
-    @staticmethod
-    def _get_reward_values(batch: dict[str, Tensor]) -> Tensor | None:
-        for reward_key in ("reward", REWARD):
+    def _get_reward_values(self, batch: dict[str, Tensor]) -> Tensor | None:
+        for reward_key in (self.config.value_reward_key, "reward", REWARD):
             if reward_key in batch:
-                return batch[reward_key].to(dtype=torch.float32)
+                rewards = batch[reward_key].to(dtype=torch.float32)
+                if reward_key == self.config.value_reward_key and self.config.value_bootstrap_steps > 0:
+                    rewards = rewards[:, 0]
+                return rewards
         return None
 
     def _build_scalar_prediction_log(
@@ -1870,36 +2005,51 @@ class PI05Policy(PreTrainedPolicy):
                 - "mean": Return scalar mean loss (default, backward compatible)
                 - "none": Return per-sample losses of shape (batch_size,) for RA-BC weighting
         """
-        # Prepare inputs
-        images, img_masks = self._preprocess_images(batch)
-        tokens = masks = None
-        if not (self.config.use_value_model and self.config.value_backbone == "smolvlm"):
-            tokens = batch[f"{OBS_LANGUAGE_TOKENS}"]
-            masks = batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
-
         if self.config.use_value_model:
-            if self.config.value_key not in batch:
-                raise KeyError(
-                    f"Expected value target key '{self.config.value_key}' in batch, "
-                    f"but available keys are: {sorted(batch.keys())}"
+            value_batch = self._select_value_observation_step(batch, 0)
+            if self.config.value_bootstrap_steps > 0 and self.training:
+                values = self._build_n_step_value_target(batch)
+                target_key = (
+                    f"{self.config.value_bootstrap_steps}_step_{self.config.value_reward_key}"
+                    f"_gamma_{self.config.value_discount:g}"
                 )
-            values = batch[self.config.value_key].to(device=images[0].device, dtype=torch.float32)
+            else:
+                if self.config.value_key not in batch:
+                    raise KeyError(
+                        f"Expected value target key '{self.config.value_key}' in batch, "
+                        f"but available keys are: {sorted(batch.keys())}"
+                    )
+                values = batch[self.config.value_key].to(
+                    device=next(self.model.parameters()).device,
+                    dtype=torch.float32,
+                )
+                target_key = self.config.value_key
+                if self.config.value_bootstrap_steps > 0:
+                    target_key = f"raw:{target_key}"
+
             if values.ndim == 1:
                 values = values.unsqueeze(-1)
             if values.shape[-1] != self.config.value_dim:
                 raise ValueError(
-                    f"Expected batch['{self.config.value_key}'] to have last dimension "
+                    f"Expected value targets to have last dimension "
                     f"{self.config.value_dim}, got {tuple(values.shape)}"
                 )
 
+            images, img_masks = self._preprocess_images(value_batch)
             if self.config.value_backbone == "smolvlm":
-                predictions = self.model.predict_values(images, img_masks, self.prepare_state(batch))
+                predictions = self.model.predict_values(
+                    images,
+                    img_masks,
+                    self.prepare_state(value_batch),
+                )
             else:
+                tokens = value_batch[f"{OBS_LANGUAGE_TOKENS}"]
+                masks = value_batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
                 predictions = self.model.predict_values(images, img_masks, tokens, masks)
             losses = F.mse_loss(predictions, values, reduction="none")
             loss_dict = self._build_scalar_prediction_log(
                 kind="value",
-                target_key=self.config.value_key,
+                target_key=target_key,
                 predictions=predictions,
                 targets=values,
                 batch=batch,
@@ -1914,6 +2064,11 @@ class PI05Policy(PreTrainedPolicy):
             loss = losses.mean()
             loss_dict["loss"] = loss.item()
             return loss, loss_dict
+
+        # Prepare action and Q-model inputs.
+        images, img_masks = self._preprocess_images(batch)
+        tokens = batch[f"{OBS_LANGUAGE_TOKENS}"]
+        masks = batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
 
         if self.config.use_q_model:
             if self.config.q_key not in batch:
