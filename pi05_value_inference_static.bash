@@ -2,9 +2,9 @@
 #SBATCH --job-name=pi05_value_infer
 #SBATCH -p kira-lab
 #SBATCH -A kira-lab
-#SBATCH -G a40:1
+#SBATCH -G 2080_ti:1
 #SBATCH -c 8
-#SBATCH --mem=32G
+#SBATCH --mem=12G
 #SBATCH --qos=short
 #SBATCH --array=0-297%20
 #SBATCH --exclude=ig-88,megazord,cyborg,megazord,sonny,spd-13
