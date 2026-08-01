@@ -270,8 +270,6 @@ class WandBLogger:
             "gt_target",
             "prediction",
             "gt_reward",
-            "gt_target_normalized",
-            "prediction_normalized",
         ]
         rows = []
         for index in range(batch_size):

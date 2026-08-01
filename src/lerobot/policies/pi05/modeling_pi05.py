@@ -2010,7 +2010,7 @@ class PI05Policy(PreTrainedPolicy):
             if self.config.value_bootstrap_steps > 0 and self.training:
                 values = self._build_n_step_value_target(batch)
                 target_key = (
-                    f"{self.config.value_bootstrap_steps}_step_{self.config.value_reward_key}"
+                    f"raw:{self.config.value_bootstrap_steps}_step_{self.config.value_reward_key}"
                     f"_gamma_{self.config.value_discount:g}"
                 )
             else:
@@ -2023,9 +2023,7 @@ class PI05Policy(PreTrainedPolicy):
                     device=next(self.model.parameters()).device,
                     dtype=torch.float32,
                 )
-                target_key = self.config.value_key
-                if self.config.value_bootstrap_steps > 0:
-                    target_key = f"raw:{target_key}"
+                target_key = f"raw:{self.config.value_key}"
 
             if values.ndim == 1:
                 values = values.unsqueeze(-1)
@@ -2090,7 +2088,7 @@ class PI05Policy(PreTrainedPolicy):
             losses = F.mse_loss(predictions, q_values, reduction="none")
             loss_dict = self._build_scalar_prediction_log(
                 kind="q",
-                target_key=self.config.q_key,
+                target_key=f"raw:{self.config.q_key}",
                 predictions=predictions,
                 targets=q_values,
                 batch=batch,

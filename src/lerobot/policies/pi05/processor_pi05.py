@@ -159,11 +159,8 @@ def make_pi05_pre_post_processors(
     Returns:
         A tuple containing the configured pre-processor and post-processor pipelines.
     """
-    normalize_complementary_data_keys = None
-    if config.use_value_model and config.value_bootstrap_steps == 0:
-        normalize_complementary_data_keys = {config.value_key}
-    elif config.use_q_model:
-        normalize_complementary_data_keys = {config.q_key}
+    # Explicitly persist that scalar value/Q targets and rewards remain in raw units.
+    normalize_complementary_data_keys = set() if (config.use_value_model or config.use_q_model) else None
 
     input_steps: list[ProcessorStep] = [
         RenameObservationsProcessorStep(rename_map={}),  # To mimic the same processor as pretrained one

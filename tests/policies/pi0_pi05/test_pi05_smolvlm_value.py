@@ -14,6 +14,7 @@
 
 from types import SimpleNamespace
 
+import pytest
 import torch
 from torch import nn
 
@@ -22,7 +23,16 @@ from lerobot.datasets.factory import resolve_delta_timestamps
 from lerobot.policies.pi05.configuration_pi05 import PI05Config
 from lerobot.policies.pi05.modeling_pi05 import PI05Policy
 from lerobot.policies.pi05.processor_pi05 import make_pi05_pre_post_processors
-from lerobot.utils.constants import ACTION, OBS_STATE
+from lerobot.scripts.lerobot_train import (
+    ensure_raw_pi05_scalar_preprocessor,
+    unnormalize_iql_target_tensor,
+)
+from lerobot.utils.constants import (
+    ACTION,
+    OBS_LANGUAGE_ATTENTION_MASK,
+    OBS_LANGUAGE_TOKENS,
+    OBS_STATE,
+)
 
 IMAGE_KEY = "observation.images.test"
 
@@ -75,6 +85,16 @@ class _FakeSmolVLM(nn.Module):
 
     def gradient_checkpointing_disable(self):
         pass
+
+
+class _FakeQModel(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.q_values = nn.Parameter(torch.zeros(config.q_dim))
+
+    def predict_q_values(self, images, img_masks, tokens, masks, actions):
+        del images, img_masks, tokens, masks
+        return self.q_values.unsqueeze(0).expand(actions.shape[0], -1)
 
 
 def _make_config(**overrides) -> PI05Config:
@@ -139,9 +159,11 @@ def test_smolvlm_value_policy_ignores_language(monkeypatch):
         "return": torch.ones(2),
     }
 
-    loss, _ = policy(batch)
+    loss, output = policy(batch)
 
     assert loss.shape == ()
+    assert output["_iql_target_key"] == "raw:return"
+    torch.testing.assert_close(output["_iql_targets"], torch.ones(2, 1))
     loss.backward()
     assert policy.model.value_head.weight.grad is not None
     assert policy.predict_values(batch).shape == (2, 1)
@@ -197,6 +219,7 @@ def test_smolvlm_bootstrap_builds_exact_interior_n_step_target(monkeypatch):
     loss, output = policy(_make_bootstrap_batch(rewards=(1.0, 2.0, 3.0)))
 
     expected_target = torch.tensor([[3.75]])  # 1 + .5*2 + .5^2*3 + .5^3*8
+    assert output["_iql_target_key"] == "raw:3_step_sparse_reward_gamma_0.5"
     torch.testing.assert_close(output["_iql_targets"], expected_target)
     torch.testing.assert_close(loss, expected_target.square().mean())
 
@@ -303,6 +326,7 @@ def test_smolvlm_bootstrap_eval_uses_dataset_mc_target(monkeypatch):
 
     loss, output = policy(_make_bootstrap_batch(mc_target=5.0))
 
+    assert output["_iql_target_key"] == "raw:return"
     torch.testing.assert_close(output["_iql_targets"], torch.tensor([[5.0]]))
     torch.testing.assert_close(loss, torch.tensor(9.0))
 
@@ -339,12 +363,31 @@ def test_smolvlm_bootstrap_requests_future_observations_and_sparse_rewards():
     assert delta_timestamps[IMAGE_KEY] == [0.0, 0.15]
 
 
-def test_smolvlm_bootstrap_processor_keeps_targets_in_raw_units():
-    preprocessor, _ = make_pi05_pre_post_processors(
-        _make_config(value_bootstrap_steps=3),
-    )
+def test_smolvlm_value_processor_keeps_targets_in_raw_units():
+    for value_bootstrap_steps in (0, 3):
+        preprocessor, _ = make_pi05_pre_post_processors(
+            _make_config(value_bootstrap_steps=value_bootstrap_steps),
+        )
 
-    assert preprocessor.steps[2].normalize_complementary_data_keys is None
+        assert preprocessor.steps[2].normalize_complementary_data_keys == set()
+
+
+def test_raw_value_target_skips_unnormalization():
+    values = torch.tensor([[0.25]])
+    stats = {"return": {"q01": [0.0], "q99": [1.0]}}
+
+    assert unnormalize_iql_target_tensor(values, "raw:return", stats) is values
+
+
+def test_legacy_normalized_scalar_preprocessors_are_rejected():
+    for normalized_keys in (None, set()):
+        step = SimpleNamespace(normalize_complementary_data_keys=normalized_keys)
+        ensure_raw_pi05_scalar_preprocessor(SimpleNamespace(steps=[step]))
+
+    for normalized_key in ("return", "q_values"):
+        step = SimpleNamespace(normalize_complementary_data_keys={normalized_key})
+        with pytest.raises(ValueError, match=normalized_key):
+            ensure_raw_pi05_scalar_preprocessor(SimpleNamespace(steps=[step]))
 
 
 def test_smolvlm_value_checkpoint_round_trip(monkeypatch, tmp_path):
@@ -381,3 +424,37 @@ def test_smolvlm_bootstrap_syncs_target_when_loading_legacy_checkpoint(monkeypat
     loaded = PI05Policy.from_pretrained(tmp_path, config=bootstrap_config)
 
     torch.testing.assert_close(loaded.model_target.value_head.weight, loaded.model.value_head.weight)
+
+
+def test_pi05_q_processor_keeps_targets_in_raw_units(monkeypatch):
+    monkeypatch.setattr(
+        "lerobot.processor.tokenizer_processor.AutoTokenizer.from_pretrained",
+        lambda *args, **kwargs: object(),
+    )
+    preprocessor, _ = make_pi05_pre_post_processors(
+        _make_config(use_value_model=False, value_backbone="paligemma", use_q_model=True)
+    )
+
+    assert preprocessor.steps[2].normalize_complementary_data_keys == set()
+
+
+def test_pi05_q_targets_and_rewards_stay_in_raw_units(monkeypatch):
+    monkeypatch.setattr("lerobot.policies.pi05.modeling_pi05.PI05QPytorch", _FakeQModel)
+    policy = PI05Policy(
+        _make_config(use_value_model=False, value_backbone="paligemma", use_q_model=True)
+    )
+    monkeypatch.setattr(policy, "_preprocess_images", lambda batch: ([], []))
+    batch = {
+        OBS_LANGUAGE_TOKENS: torch.ones(2, 1, dtype=torch.long),
+        OBS_LANGUAGE_ATTENTION_MASK: torch.ones(2, 1, dtype=torch.bool),
+        ACTION: torch.zeros(2, 2),
+        "q_values": torch.tensor([0.25, 0.75]),
+        "sparse_reward": torch.tensor([[0.0], [1.0]]),
+    }
+
+    loss, output = policy(batch)
+
+    assert output["_iql_target_key"] == "raw:q_values"
+    torch.testing.assert_close(output["_iql_targets"], torch.tensor([[0.25], [0.75]]))
+    torch.testing.assert_close(output["_iql_rewards"], torch.tensor([[0.0], [1.0]]))
+    torch.testing.assert_close(loss, torch.tensor(0.3125))

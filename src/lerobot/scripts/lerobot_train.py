@@ -163,9 +163,26 @@ def pop_iql_prediction_payload(output_dict: dict) -> dict | None:
     return payload
 
 
+def ensure_raw_pi05_scalar_preprocessor(preprocessor: Any) -> None:
+    normalized_keys = {
+        key
+        for step in getattr(preprocessor, "steps", ())
+        for key in (getattr(step, "normalize_complementary_data_keys", None) or ())
+    }
+    if not normalized_keys:
+        return
+    raise ValueError(
+        "PI05 scalar training requires raw Q/reward/return values, but the loaded "
+        f"preprocessor normalizes complementary keys: {sorted(normalized_keys)}. "
+        "Start a new run instead of resuming a legacy normalized-target checkpoint."
+    )
+
+
 def unnormalize_iql_target_tensor(
     tensor: torch.Tensor, target_key: str, dataset_stats: dict
 ) -> torch.Tensor | None:
+    if target_key.startswith("raw:"):
+        return tensor
     if not dataset_stats:
         return None
     if target_key not in dataset_stats:
@@ -386,18 +403,22 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
                 "norm_map": policy.config.normalization_mapping,
             },
         }
-        if cfg.policy.type == "pi05" and getattr(cfg.policy, "use_value_model", False):
+        if (
+            cfg.policy.type == "pi05"
+            and getattr(cfg.policy, "use_value_model", False)
+            and not cfg.resume
+        ):
             processor_kwargs["preprocessor_overrides"]["normalizer_processor"][
                 "normalize_complementary_data_keys"
-            ] = (
-                []
-                if getattr(cfg.policy, "value_bootstrap_steps", 0) > 0
-                else [cfg.policy.value_key]
-            )
-        if cfg.policy.type == "pi05" and getattr(cfg.policy, "use_q_model", False):
+            ] = []
+        if (
+            cfg.policy.type == "pi05"
+            and getattr(cfg.policy, "use_q_model", False)
+            and not cfg.resume
+        ):
             processor_kwargs["preprocessor_overrides"]["normalizer_processor"][
                 "normalize_complementary_data_keys"
-            ] = [cfg.policy.q_key]
+            ] = []
         if cfg.policy.type == "pi05" and getattr(cfg.policy, "value_backbone", "paligemma") != "smolvlm":
             processor_kwargs["preprocessor_overrides"]["pi05_prepare_state_tokenizer_processor_step"] = {
                 "drop_proprioception_input": cfg.policy.drop_proprioception_input,
@@ -421,6 +442,12 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         **processor_kwargs,
         **postprocessor_kwargs,
     )
+
+    if cfg.policy.type == "pi05" and (
+        getattr(cfg.policy, "use_value_model", False)
+        or getattr(cfg.policy, "use_q_model", False)
+    ):
+        ensure_raw_pi05_scalar_preprocessor(preprocessor)
 
     if is_main_process:
         logging.info("Creating optimizer and scheduler")
