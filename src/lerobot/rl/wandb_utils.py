@@ -288,8 +288,6 @@ class WandBLogger:
                         raw_predictions if raw_predictions is not None else predictions, index
                     ),
                     self._table_value(rewards, index),
-                    self._table_value(targets, index),
-                    self._table_value(predictions, index),
                 ]
             )
 

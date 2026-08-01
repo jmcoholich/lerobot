@@ -4,8 +4,8 @@
 #SBATCH -A kira-lab
 #SBATCH -G a40:1
 #SBATCH -c 12
-#SBATCH --mem=32G
-#SBATCH --qos=long
+#SBATCH --mem=24G
+#SBATCH --qos=short
 #SBATCH --exclude=ig-88,megazord,cyborg,megazord,sonny,spd-13
 
 echo "Hostname: $(hostname)"
@@ -17,13 +17,14 @@ fi
 
 JOB_NAME=${1:?Pass JOB_NAME as the first argument}
 INIT=${INIT:-smolvla}
-N_STEP=${N_STEP:-10}
+N_STEP=${N_STEP:-0}
 DISCOUNT=${DISCOUNT:-0.99}
 TAU=${TAU:-0.005}
+LR=${LR:-1e-5}
 TEST_DATASET=${TEST_DATASET:-walle_skywalker_testset}
 WEIGHT_DECAY=${WEIGHT_DECAY:-0.01}
 DROP_PROPRIOCEPTION_INPUT=${DROP_PROPRIOCEPTION_INPUT:-false}
-INPUT_DROPOUT_PERCENT=${INPUT_DROPOUT_PERCENT:-0}
+INPUT_DROPOUT_PERCENT=${INPUT_DROPOUT_PERCENT:-50}
 SEED=${SEED:-1000}
 if ! [[ "$N_STEP" =~ ^[0-9]+$ ]]; then
     echo "N_STEP must be a non-negative integer, got '$N_STEP'" >&2
@@ -48,7 +49,6 @@ PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
 SMOLVLM_PRETRAINED_PATH=HuggingFaceTB/SmolVLM2-256M-Video-Instruct
 PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 OUTDIR=./outputs/$JOB_NAME
-LR=1e-5
 DATASET='plug5_offline_rl_dataset'
 DATA_ROOT=/coc/testnvme/jcoholich3/lerobot_data
 # DATA_ROOT=/data3/lerobot_data
@@ -61,6 +61,7 @@ echo "N-step return horizon: $N_STEP"
 echo "Discount factor: $DISCOUNT"
 echo "Reward key: sparse_reward"
 echo "Target network tau: $TAU"
+echo "Learning rate: $LR"
 echo "Test dataset: $TEST_DATASET"
 echo "Weight decay: $WEIGHT_DECAY"
 echo "Drop proprioception input: $DROP_PROPRIOCEPTION_INPUT"
@@ -103,7 +104,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.compile_model=false \
     --policy.gradient_checkpointing=true \
     --wandb.enable=true \
-    --wandb.project=lerobot_iql \
+    --wandb.project=value_function_2 \
     --policy.dtype=bfloat16 \
     --policy.freeze_vision_encoder=false \
     --policy.train_expert_only=false \
@@ -121,8 +122,9 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.drop_proprioception_input=$DROP_PROPRIOCEPTION_INPUT \
     --policy.input_dropout_percent=$INPUT_DROPOUT_PERCENT \
     --policy.device=cuda \
-    --batch_size=32 \
-    --test_freq=100 \
+    --batch_size=128 \
+    --test_batch_size=128 \
+    --test_freq=10 \
     --test_first_step=true \
     --test_frame_stride=10 \
     --log_freq=100 \

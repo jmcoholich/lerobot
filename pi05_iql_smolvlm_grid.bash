@@ -1,27 +1,25 @@
 #!/bin/bash
-#SBATCH --job-name=bootstrap_100_grid
-#SBATCH --array=0-164%80
+#SBATCH --job-name=smolvlm_lr_grid
+#SBATCH --array=0-20%80
 #SBATCH -p kira-lab
 #SBATCH -A kira-lab
 #SBATCH -G a40:1
 #SBATCH -c 12
-#SBATCH --mem=32G
-#SBATCH --qos=short
+#SBATCH --mem=24G
+#SBATCH --qos=long
 #SBATCH --output=slurm-%A_%a.out
 #SBATCH --exclude=ig-88,megazord,cyborg,sonny,spd-13
 
 set -euo pipefail
 
-GRID_NAME=${1:-bootstrap_100}
+GRID_NAME=${1:-smolvlm_lr_grid}
 
-DROPOUTS=(0 10 20 30 40 50 60 70 80 90 100)
-WEIGHT_DECAYS=(0.01 0.1 1 5 10)
+LEARNING_RATES=(1e-7 3e-7 1e-6 3e-6 1e-5 3e-5 1e-4)
 SEEDS=(0 1 2)
 
 TASK_ID=${SLURM_ARRAY_TASK_ID:?Submit this script with sbatch}
-NUM_DROPOUTS=${#DROPOUTS[@]}
 NUM_SEEDS=${#SEEDS[@]}
-NUM_RUNS=$((NUM_DROPOUTS * ${#WEIGHT_DECAYS[@]} * NUM_SEEDS))
+NUM_RUNS=$((${#LEARNING_RATES[@]} * NUM_SEEDS))
 
 if ((TASK_ID < 0 || TASK_ID >= NUM_RUNS)); then
     echo "SLURM_ARRAY_TASK_ID must be between 0 and $((NUM_RUNS - 1)), got $TASK_ID" >&2
@@ -29,22 +27,17 @@ if ((TASK_ID < 0 || TASK_ID >= NUM_RUNS)); then
 fi
 
 SEED=${SEEDS[$((TASK_ID % NUM_SEEDS))]}
-COMBINATION_ID=$((TASK_ID / NUM_SEEDS))
-DROPOUT=${DROPOUTS[$((COMBINATION_ID % NUM_DROPOUTS))]}
-WEIGHT_DECAY=${WEIGHT_DECAYS[$((COMBINATION_ID / NUM_DROPOUTS))]}
-JOB_NAME="${GRID_NAME}_dropout${DROPOUT}_wd${WEIGHT_DECAY}"
+LR=${LEARNING_RATES[$((TASK_ID / NUM_SEEDS))]}
+JOB_NAME="${GRID_NAME}_lr${LR}"
 
 REPO_DIR=${SLURM_SUBMIT_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)}
 cd "$REPO_DIR"
 
 echo "Grid task: $TASK_ID/$((NUM_RUNS - 1))"
-echo "Dropout: $DROPOUT"
-echo "Weight decay: $WEIGHT_DECAY"
+echo "Learning rate: $LR"
 echo "Seed: $SEED"
 echo "Training job name: ${JOB_NAME}_seed_${SEED}"
 
 SEED="$SEED" \
-N_STEP=100 \
-WEIGHT_DECAY="$WEIGHT_DECAY" \
-INPUT_DROPOUT_PERCENT="$DROPOUT" \
+LR="$LR" \
 bash "$REPO_DIR/pi05_iql_train_value_fn.bash" "$JOB_NAME"
