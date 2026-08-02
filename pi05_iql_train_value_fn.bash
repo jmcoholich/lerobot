@@ -122,7 +122,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.drop_proprioception_input=$DROP_PROPRIOCEPTION_INPUT \
     --policy.input_dropout_percent=$INPUT_DROPOUT_PERCENT \
     --policy.device=cuda \
-    --batch_size=128 \
+    --batch_size=256 \
     --test_batch_size=128 \
     --test_freq=10 \
     --test_first_step=true \

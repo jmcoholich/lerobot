@@ -12,9 +12,9 @@
 
 set -euo pipefail
 
-GRID_NAME=${1:-smolvlm_lr_grid}
+GRID_NAME=${1:-smolvlm_lr_grid_256_bs}
 
-LEARNING_RATES=(1e-7 3e-7 1e-6 3e-6 1e-5 3e-5 1e-4)
+LEARNING_RATES=(3e-5 1e-4 3e-4)
 SEEDS=(0 1 2)
 
 TASK_ID=${SLURM_ARRAY_TASK_ID:?Submit this script with sbatch}
