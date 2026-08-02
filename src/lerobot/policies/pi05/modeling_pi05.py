@@ -1418,6 +1418,7 @@ class PI05Policy(PreTrainedPolicy):
         Args:
             config: Policy configuration class instance.
         """
+        load_vision_encoder_pretrained = kwargs.pop("load_vision_encoder_pretrained", True)
         super().__init__(config)
         config.validate_features()
         self.config = config
@@ -1429,6 +1430,15 @@ class PI05Policy(PreTrainedPolicy):
                 from lerobot.policies.pi05.modeling_smolvlm_value import SmolVLMValuePytorch
 
                 self.model = SmolVLMValuePytorch(config)
+            elif config.value_backbone == "vision_mlp":
+                from lerobot.policies.pi05.modeling_vision_mlp_value import (
+                    PI05VisionMLPValuePytorch,
+                )
+
+                self.model = PI05VisionMLPValuePytorch(
+                    config,
+                    load_pretrained=load_vision_encoder_pretrained,
+                )
             else:
                 self.model = PI05ValuePytorch(config)
         elif config.use_q_model:
@@ -1490,10 +1500,12 @@ class PI05Policy(PreTrainedPolicy):
                 revision=revision,
                 **kwargs,
             )
-
-
         with no_init_weights():
-            model = cls(config, **kwargs)
+            model = cls(
+                config,
+                load_vision_encoder_pretrained=config.value_backbone != "vision_mlp",
+                **kwargs,
+            )
         if config.use_value_model and config.value_backbone == "paligemma":
             model.model.paligemma_backbone.paligemma.tie_weights()
         elif not config.use_value_model:
@@ -1683,6 +1695,8 @@ class PI05Policy(PreTrainedPolicy):
         ):
             if target_name != name:
                 raise RuntimeError(f"Target parameter mismatch: {target_name} != {name}")
+            if not param.requires_grad:
+                continue
             target_param.lerp_(param.to(dtype=target_param.dtype), tau)
 
         for (target_name, target_buffer), (name, buffer) in zip(
@@ -1760,9 +1774,10 @@ class PI05Policy(PreTrainedPolicy):
                 # Convert [B, C, H, W] to [B, H, W, C] for processing
                 img = img.permute(0, 2, 3, 1)
 
-            # SmolVLM uses the resize helper's native [-1, 1] convention so padded pixels stay black.
+            # Direct vision backbones use the resize helper's native [-1, 1] convention.
             normalize_before_resize = (
-                self.config.use_value_model and self.config.value_backbone == "smolvlm"
+                self.config.use_value_model
+                and self.config.value_backbone in ["smolvlm", "vision_mlp"]
             )
             if normalize_before_resize:
                 img = img * 2.0 - 1.0
@@ -1945,7 +1960,7 @@ class PI05Policy(PreTrainedPolicy):
 
         value_batch = self._select_value_observation_step(batch, 0)
         images, img_masks = self._preprocess_images(value_batch)
-        if self.config.value_backbone == "smolvlm":
+        if self.config.value_backbone in ["smolvlm", "vision_mlp"]:
             return self.model.predict_values(images, img_masks, self.prepare_state(value_batch))
 
         tokens = value_batch[f"{OBS_LANGUAGE_TOKENS}"]
@@ -2034,7 +2049,7 @@ class PI05Policy(PreTrainedPolicy):
                 )
 
             images, img_masks = self._preprocess_images(value_batch)
-            if self.config.value_backbone == "smolvlm":
+            if self.config.value_backbone in ["smolvlm", "vision_mlp"]:
                 predictions = self.model.predict_values(
                     images,
                     img_masks,
@@ -2135,6 +2150,15 @@ class PI05Policy(PreTrainedPolicy):
                 target_modules = (
                     r"(model\.vlm\.model\.text_model\..*\.(q|v)_proj|"
                     r"model\.(state_proj|value_head)\..*)"
+                )
+                return {
+                    "target_modules": target_modules,
+                    "modules_to_save": [],
+                }
+            if self.config.value_backbone == "vision_mlp":
+                target_modules = (
+                    r"(model\.vision_tower\..*\.(q|v)_proj|"
+                    r"model\.(vision_projection|value_mlp|value_head)\..*)"
                 )
                 return {
                     "target_modules": target_modules,

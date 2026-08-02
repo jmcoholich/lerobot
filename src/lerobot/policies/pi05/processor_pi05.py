@@ -174,8 +174,8 @@ def make_pi05_pre_post_processors(
             normalize_complementary_data_keys=normalize_complementary_data_keys,
         ),
     ]
-    if config.use_value_model and config.value_backbone == "smolvlm":
-        # The SmolVLM value model consumes images and proprioception directly.
+    if config.use_value_model and config.value_backbone in ["smolvlm", "vision_mlp"]:
+        # Direct-state value models consume images and continuous proprioception without tokenization.
         input_steps.append(DeviceProcessorStep(device=config.device))
     else:
         input_steps.extend(

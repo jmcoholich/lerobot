@@ -1,0 +1,133 @@
+#!/bin/bash
+#SBATCH --job-name=pi05_vision_mlp
+#SBATCH -p kira-lab
+#SBATCH -A kira-lab
+#SBATCH -G a40:1
+#SBATCH -c 12
+#SBATCH --mem=24G
+#SBATCH --qos=short
+#SBATCH --exclude=ig-88,megazord,cyborg,megazord,sonny,spd-13
+
+echo "Hostname: $(hostname)"
+if ! GPU_STATUS=$(nvidia-smi 2>&1) || [[ "$GPU_STATUS" == *ERR* ]]; then
+    echo "GPU is not available:" >&2
+    echo "$GPU_STATUS" >&2
+    exit 1
+fi
+
+JOB_NAME=${1:?Pass JOB_NAME as the first argument}
+INIT=${INIT:-pi05}
+N_STEP=${N_STEP:-0}
+DISCOUNT=${DISCOUNT:-0.99}
+TAU=${TAU:-0.005}
+LR=${LR:-1e-5}
+TEST_DATASET=${TEST_DATASET:-walle_skywalker_testset}
+WEIGHT_DECAY=${WEIGHT_DECAY:-0.01}
+DROP_PROPRIOCEPTION_INPUT=${DROP_PROPRIOCEPTION_INPUT:-false}
+INPUT_DROPOUT_PERCENT=${INPUT_DROPOUT_PERCENT:-50}
+VISION_PROJECTION_DIM=${VISION_PROJECTION_DIM:-256}
+MLP_HIDDEN_DIM=${MLP_HIDDEN_DIM:-512}
+MLP_DROPOUT=${MLP_DROPOUT:-0.1}
+FREEZE_VISION_ENCODER=${FREEZE_VISION_ENCODER:-true}
+SEED=${SEED:-1000}
+if ! [[ "$N_STEP" =~ ^[0-9]+$ ]]; then
+    echo "N_STEP must be a non-negative integer, got '$N_STEP'" >&2
+    exit 1
+fi
+if ! DISCOUNT_KEY=$(printf "%.10g" "$DISCOUNT" 2>/dev/null); then
+    echo "DISCOUNT must be numeric, got '$DISCOUNT'" >&2
+    exit 1
+fi
+if [ "$DISCOUNT_KEY" = "1" ]; then
+    DISCOUNT_KEY=1.0
+fi
+VALUE_KEY=${VALUE_KEY:-sparse_returns_gamma_${DISCOUNT_KEY}}
+if [ "$SEED" != "1000" ]; then
+    JOB_NAME="${JOB_NAME}_seed_${SEED}"
+fi
+PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
+PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
+OUTDIR=./outputs/$JOB_NAME
+DATASET='plug5_offline_rl_dataset'
+DATA_ROOT=/coc/testnvme/jcoholich3/lerobot_data
+
+echo "Job name: $JOB_NAME"
+echo "Output dir: $OUTDIR"
+echo "Value key: $VALUE_KEY"
+echo "Vision initialization: $INIT"
+echo "N-step return horizon: $N_STEP"
+echo "Discount factor: $DISCOUNT"
+echo "Reward key: sparse_reward"
+echo "Target network tau: $TAU"
+echo "Learning rate: $LR"
+echo "Test dataset: $TEST_DATASET"
+echo "Weight decay: $WEIGHT_DECAY"
+echo "Drop proprioception input: $DROP_PROPRIOCEPTION_INPUT"
+echo "Input dropout percent: $INPUT_DROPOUT_PERCENT"
+echo "Vision projection dim: $VISION_PROJECTION_DIM"
+echo "MLP hidden dim: $MLP_HIDDEN_DIM"
+echo "MLP dropout: $MLP_DROPOUT"
+echo "Freeze vision encoder: $FREEZE_VISION_ENCODER"
+echo "Seed: $SEED"
+
+if [ "$INIT" = "paligemma" ]; then
+    VISION_PRETRAINED_PATH=$PALIGEMMA_PRETRAINED_PATH
+elif [ "$INIT" = "pi05" ]; then
+    VISION_PRETRAINED_PATH=$PI05_BASE_PRETRAINED_PATH
+else
+    echo "Unknown init '$INIT' (expected 'paligemma' or 'pi05')" >&2
+    exit 1
+fi
+echo "Vision encoder pretrained path: $VISION_PRETRAINED_PATH"
+
+source /coc/testnvme/$USER/.bashrc
+conda activate lerobot
+
+export PYTHONPATH="$PWD/src:${PYTHONPATH}"
+
+python src/lerobot/scripts/lerobot_train.py\
+    --dataset.repo_id=$DATASET \
+    --dataset.root="$DATA_ROOT/$DATASET" \
+    --test_dataset.repo_id=$TEST_DATASET \
+    --test_dataset.root="$DATA_ROOT/$TEST_DATASET" \
+    --policy.type=pi05 \
+    --seed=$SEED \
+    --output_dir=$OUTDIR \
+    --job_name=$JOB_NAME \
+    --policy.repo_id=your_repo_id \
+    --policy.compile_model=false \
+    --policy.gradient_checkpointing=true \
+    --wandb.enable=true \
+    --wandb.project=value_function_2 \
+    --policy.dtype=bfloat16 \
+    --policy.freeze_vision_encoder=$FREEZE_VISION_ENCODER \
+    --policy.train_expert_only=false \
+    --policy.use_value_model=true \
+    --policy.value_backbone=vision_mlp \
+    --policy.vision_encoder_pretrained_path="$VISION_PRETRAINED_PATH" \
+    --policy.vision_mlp_projection_dim=$VISION_PROJECTION_DIM \
+    --policy.vision_mlp_hidden_dim=$MLP_HIDDEN_DIM \
+    --policy.vision_mlp_dropout=$MLP_DROPOUT \
+    --policy.value_key="$VALUE_KEY" \
+    --policy.value_dim=1 \
+    --policy.value_bootstrap_steps="$N_STEP" \
+    --policy.value_discount="$DISCOUNT" \
+    --policy.value_reward_key=sparse_reward \
+    --policy.value_target_tau="$TAU" \
+    --steps=3000 \
+    --policy.optimizer_lr=$LR \
+    --policy.scheduler_warmup_steps=3000 \
+    --policy.optimizer_weight_decay=$WEIGHT_DECAY \
+    --policy.drop_proprioception_input=$DROP_PROPRIOCEPTION_INPUT \
+    --policy.input_dropout_percent=$INPUT_DROPOUT_PERCENT \
+    --policy.device=cuda \
+    --batch_size=128 \
+    --test_batch_size=128 \
+    --test_freq=10 \
+    --test_first_step=true \
+    --test_frame_stride=10 \
+    --log_freq=100 \
+    --log_first_step=true \
+    --save_freq=0 \
+    --save_best_test_checkpoint=true \
+    --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'

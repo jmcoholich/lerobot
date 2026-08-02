@@ -81,9 +81,13 @@ class PI05Config(PreTrainedConfig):
     freeze_vision_encoder: bool = False  # Freeze only the vision encoder
     train_expert_only: bool = False  # Freeze entire VLM, train only action expert and projections
     use_value_model: bool = False  # Replace the action expert branch with a scalar value head.
-    value_backbone: str = "paligemma"  # Value backbone: "paligemma" or "smolvlm".
+    value_backbone: str = "paligemma"  # Value backbone: "paligemma", "smolvlm", or "vision_mlp".
     paligemma_pretrained_path: str | None = None  # Optional base PaliGemma checkpoint for value models.
     smolvlm_pretrained_path: str = "HuggingFaceTB/SmolVLM2-256M-Video-Instruct"
+    vision_encoder_pretrained_path: str | None = None  # PI0.5 or PaliGemma weights for vision_mlp.
+    vision_mlp_projection_dim: int = 256
+    vision_mlp_hidden_dim: int = 512
+    vision_mlp_dropout: float = 0.1
     value_key: str = "returns_gamma_0.995"  # Batch key to regress when use_value_model is enabled.
     value_dim: int = 2  # Number of scalar values to predict.
     value_bootstrap_steps: int = 0  # Number of reward steps before bootstrapping; 0 disables it.
@@ -93,7 +97,7 @@ class PI05Config(PreTrainedConfig):
     use_q_model: bool = False  # Use the action-conditioned scalar Q-value model.
     q_key: str = "q_values"  # Batch key to regress when use_q_model is enabled.
     q_dim: int = 1  # Number of scalar Q-values to predict.
-    drop_proprioception_input: bool = False  # Zero proprioception before it is tokenized into the prompt.
+    drop_proprioception_input: bool = False  # Zero the proprioception input.
     input_dropout_percent: float = 0.0  # Training-only probability to zero proprioception/images.
 
     # Optimizer settings: see openpi `AdamW`
@@ -153,17 +157,17 @@ class PI05Config(PreTrainedConfig):
         if self.use_value_model and self.use_q_model:
             raise ValueError("use_value_model and use_q_model are mutually exclusive")
 
-        if self.value_backbone not in ["paligemma", "smolvlm"]:
+        if self.value_backbone not in ["paligemma", "smolvlm", "vision_mlp"]:
             raise ValueError(f"Invalid value_backbone: {self.value_backbone}")
 
         if not self.use_value_model and self.value_backbone != "paligemma":
             raise ValueError("value_backbone is only supported with use_value_model=true")
 
         if self.value_bootstrap_steps > 0 and (
-            not self.use_value_model or self.value_backbone != "smolvlm"
+            not self.use_value_model or self.value_backbone not in ["smolvlm", "vision_mlp"]
         ):
             raise ValueError(
-                "Value bootstrapping requires use_value_model=true and value_backbone='smolvlm'"
+                "Value bootstrapping requires use_value_model=true and a direct-state value backbone"
             )
         if self.value_bootstrap_steps > 0 and self.value_dim != 1:
             raise ValueError("Value bootstrapping requires value_dim=1")
@@ -181,6 +185,25 @@ class PI05Config(PreTrainedConfig):
                 "paligemma_pretrained_path cannot be combined with pretrained_path; "
                 "pretrained_path would overwrite the base VLM weights with PI0.5 policy weights"
             )
+
+        if self.vision_encoder_pretrained_path is not None and (
+            not self.use_value_model or self.value_backbone != "vision_mlp"
+        ):
+            raise ValueError(
+                "vision_encoder_pretrained_path requires use_value_model=true and "
+                "value_backbone='vision_mlp'"
+            )
+
+        if self.vision_mlp_projection_dim <= 0:
+            raise ValueError(
+                f"vision_mlp_projection_dim must be positive, got {self.vision_mlp_projection_dim}"
+            )
+
+        if self.vision_mlp_hidden_dim <= 0:
+            raise ValueError(f"vision_mlp_hidden_dim must be positive, got {self.vision_mlp_hidden_dim}")
+
+        if not 0 <= self.vision_mlp_dropout < 1:
+            raise ValueError(f"vision_mlp_dropout must be in [0, 1), got {self.vision_mlp_dropout}")
 
         if self.use_value_model and not self.value_key:
             raise ValueError("value_key must be non-empty when use_value_model is enabled")

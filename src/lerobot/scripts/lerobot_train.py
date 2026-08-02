@@ -419,7 +419,9 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             processor_kwargs["preprocessor_overrides"]["normalizer_processor"][
                 "normalize_complementary_data_keys"
             ] = []
-        if cfg.policy.type == "pi05" and getattr(cfg.policy, "value_backbone", "paligemma") != "smolvlm":
+        if cfg.policy.type == "pi05" and getattr(
+            cfg.policy, "value_backbone", "paligemma"
+        ) not in ["smolvlm", "vision_mlp"]:
             processor_kwargs["preprocessor_overrides"]["pi05_prepare_state_tokenizer_processor_step"] = {
                 "drop_proprioception_input": cfg.policy.drop_proprioception_input,
                 "input_dropout_percent": cfg.policy.input_dropout_percent,
