@@ -19,6 +19,15 @@ POLICY_NAME=${1:?Pass the policy name as the first argument}
 CHECKPOINT_NAME=${2:?Pass the checkpoint name as the second argument}
 MODEL_PATH="outputs/$POLICY_NAME/checkpoints/$CHECKPOINT_NAME/pretrained_model"
 OUTPUT_FILE="${POLICY_NAME}_${CHECKPOINT_NAME}_test_loss.txt"
+CONSTANT_ARGS=()
+if [ "${3:-}" = "--constant-scalar" ]; then
+    CONSTANT_SCALAR=${4:-0.15862231207103095}
+    CONSTANT_ARGS+=(--constant-scalar="$CONSTANT_SCALAR")
+    OUTPUT_FILE="${POLICY_NAME}_${CHECKPOINT_NAME}_constant_${CONSTANT_SCALAR}_test_loss.txt"
+elif [ -n "${3:-}" ]; then
+    echo "Unknown option '$3' (expected --constant-scalar)" >&2
+    exit 1
+fi
 
 source /coc/testnvme/$USER/.bashrc
 conda activate lerobot
@@ -34,4 +43,5 @@ fi
 
 python src/lerobot/scripts/lerobot_pi05_test_loss.py \
     --policy-path="$MODEL_PATH" \
-    --output-file="$OUTPUT_FILE"
+    --output-file="$OUTPUT_FILE" \
+    "${CONSTANT_ARGS[@]}"
