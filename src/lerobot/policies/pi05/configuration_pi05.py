@@ -89,6 +89,7 @@ class PI05Config(PreTrainedConfig):
     vision_mlp_hidden_dim: int = 512
     vision_mlp_dropout: float = 0.1
     value_key: str = "returns_gamma_0.995"  # Batch key to regress when use_value_model is enabled.
+    value_loss: str = "l2"  # Regression loss for value targets: "l1" (MAE) or "l2" (MSE).
     value_dim: int = 2  # Number of scalar values to predict.
     value_bootstrap_steps: int = 0  # Number of reward steps before bootstrapping; 0 disables it.
     value_discount: float = 0.99
@@ -136,6 +137,9 @@ class PI05Config(PreTrainedConfig):
 
         if self.value_dim <= 0:
             raise ValueError(f"value_dim must be positive, got {self.value_dim}")
+
+        if self.value_loss not in ["l1", "l2"]:
+            raise ValueError(f"value_loss must be 'l1' or 'l2', got {self.value_loss!r}")
 
         if self.value_bootstrap_steps < 0:
             raise ValueError(

@@ -15,8 +15,12 @@ from tqdm import tqdm
 
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.datasets.factory import make_dataset
+from lerobot.datasets.single_image_dataset import SingleImageDataset
 from lerobot.policies.factory import make_policy, make_pre_post_processors
-from lerobot.scripts.lerobot_train import ensure_raw_pi05_scalar_preprocessor, evaluate_scalar_predictor
+from lerobot.scripts.lerobot_train import (
+    ensure_raw_pi05_scalar_preprocessor,
+    evaluate_scalar_predictor,
+)
 from lerobot.utils.random_utils import set_seed
 
 DEFAULT_CONSTANT_SCALAR = 0.15862231207103095
@@ -49,11 +53,14 @@ def evaluate_constant_predictor(cfg, scalar: float, accelerator: Accelerator) ->
     targets = torch.tensor(table.column(0).to_numpy(), dtype=torch.float32)[
         :: cfg.test_frame_stride
     ]
+    num_camera_samples = len(cfg.selected_image_keys or [None])
+    targets = targets.repeat_interleave(num_camera_samples)
     dataloader = accelerator.prepare(
         torch.utils.data.DataLoader(targets, batch_size=cfg.test_batch_size)
     )
 
-    total_squared_error = 0.0
+    total_l1_error = 0.0
+    total_l2_error = 0.0
     num_samples = 0
     start_time = time.perf_counter()
     test_batches = tqdm(
@@ -64,13 +71,15 @@ def evaluate_constant_predictor(cfg, scalar: float, accelerator: Accelerator) ->
         disable=not accelerator.is_local_main_process,
     )
     for batch in test_batches:
-        squared_error = accelerator.gather_for_metrics((batch.float() - scalar).square())
-        total_squared_error += squared_error.sum().item()
-        num_samples += squared_error.numel()
+        absolute_error = accelerator.gather_for_metrics((batch.float() - scalar).abs())
+        total_l1_error += absolute_error.sum().item()
+        total_l2_error += absolute_error.square().sum().item()
+        num_samples += absolute_error.numel()
     torch.cuda.synchronize()
 
     return {
-        "loss": total_squared_error / num_samples,
+        "l1_loss": total_l1_error / num_samples,
+        "l2_loss": total_l2_error / num_samples,
         "num_samples": num_samples,
         "eval_s": time.perf_counter() - start_time,
     }
@@ -99,6 +108,13 @@ def main():
     else:
         train_dataset = make_dataset(cfg)
         test_dataset = make_dataset(dataclasses.replace(cfg, dataset=cfg.test_dataset))
+        if cfg.selected_image_keys is not None:
+            train_dataset = SingleImageDataset(train_dataset, cfg.selected_image_keys)
+            test_dataset = SingleImageDataset(
+                test_dataset,
+                cfg.selected_image_keys,
+                frame_indices=range(0, len(test_dataset), cfg.test_frame_stride),
+            )
         policy = make_policy(cfg.policy, ds_meta=train_dataset.meta, rename_map=cfg.rename_map)
         preprocessor, _ = make_pre_post_processors(
             policy_cfg=cfg.policy,
@@ -107,11 +123,15 @@ def main():
         )
         ensure_raw_pi05_scalar_preprocessor(preprocessor)
 
+        test_loader_dataset = (
+            test_dataset
+            if cfg.selected_image_keys is not None
+            else torch.utils.data.Subset(
+                test_dataset, range(0, len(test_dataset), cfg.test_frame_stride)
+            )
+        )
         test_dataloader = torch.utils.data.DataLoader(
-            torch.utils.data.Subset(
-                test_dataset,
-                range(0, len(test_dataset), cfg.test_frame_stride),
-            ),
+            test_loader_dataset,
             num_workers=cfg.num_workers,
             batch_size=cfg.test_batch_size,
             pin_memory=accelerator.device.type == "cuda",
@@ -137,12 +157,15 @@ def main():
         output_file = Path(args.output_file)
         output_file.write_text(
             (f"Constant prediction: {args.constant_scalar}\n" if args.constant_scalar is not None else "")
-            + f"Test loss: {metrics['loss']}\nEval time (seconds): {metrics['eval_s']}\n",
+            + f"L1 test loss: {metrics['l1_loss']}\n"
+            + f"L2 test loss: {metrics['l2_loss']}\n"
+            + f"Eval time (seconds): {metrics['eval_s']}\n",
             encoding="utf-8",
         )
         if args.constant_scalar is not None:
             print(f"Constant prediction: {args.constant_scalar}")
-        print(f"Test loss: {metrics['loss']}")
+        print(f"L1 test loss: {metrics['l1_loss']}")
+        print(f"L2 test loss: {metrics['l2_loss']}")
         print(f"Eval time (seconds): {metrics['eval_s']}")
         print(f"Wrote test loss to {output_file.resolve()}")
 

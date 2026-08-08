@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
@@ -24,9 +25,8 @@ from lerobot.policies.pi05.configuration_pi05 import PI05Config
 from lerobot.policies.pi05.modeling_pi05 import PI05Policy
 from lerobot.policies.pi05.modeling_vision_mlp_value import _load_vision_weights
 from lerobot.policies.pi05.processor_pi05 import make_pi05_pre_post_processors
-from lerobot.utils.constants import ACTION, OBS_STATE
-
-IMAGE_KEYS = ("observation.images.first", "observation.images.second")
+from lerobot.scripts.lerobot_train import evaluate_scalar_predictor
+from lerobot.utils.constants import ACTION, OBS_IMAGE, OBS_STATE
 
 
 class _FakeVisionModel(nn.Module):
@@ -71,10 +71,7 @@ def _make_config(**overrides) -> PI05Config:
     config = PI05Config(**kwargs)
     config.input_features = {
         OBS_STATE: PolicyFeature(type=FeatureType.STATE, shape=(4,)),
-        **{
-            key: PolicyFeature(type=FeatureType.VISUAL, shape=(3, 8, 8))
-            for key in IMAGE_KEYS
-        },
+        OBS_IMAGE: PolicyFeature(type=FeatureType.VISUAL, shape=(3, 8, 8)),
     }
     config.output_features = {
         ACTION: PolicyFeature(type=FeatureType.ACTION, shape=(2,)),
@@ -94,8 +91,7 @@ def test_vision_mlp_value_policy_has_no_language_model_or_language_inputs(monkey
     policy = _make_policy(monkeypatch)
     batch = {
         OBS_STATE: torch.randn(2, 4),
-        IMAGE_KEYS[0]: torch.rand(2, 3, 8, 8),
-        IMAGE_KEYS[1]: torch.rand(2, 3, 8, 8),
+        OBS_IMAGE: torch.rand(2, 3, 8, 8),
         "return": torch.ones(2),
     }
 
@@ -108,7 +104,61 @@ def test_vision_mlp_value_policy_has_no_language_model_or_language_inputs(monkey
     assert not any("language" in name or "token" in name for name, _ in policy.model.named_parameters())
 
 
-def test_vision_mlp_masks_missing_cameras_and_passes_continuous_state(monkeypatch):
+@pytest.mark.parametrize(("value_loss", "expected_loss"), [("l1", 0.5), ("l2", 0.25)])
+def test_vision_mlp_value_policy_supports_l1_and_l2_loss(monkeypatch, value_loss, expected_loss):
+    policy = _make_policy(monkeypatch, value_loss=value_loss)
+    batch = {
+        OBS_STATE: torch.randn(2, 4),
+        OBS_IMAGE: torch.rand(2, 3, 8, 8),
+        "return": torch.full((2,), 0.5),
+    }
+
+    loss, _ = policy(batch)
+
+    assert loss.item() == pytest.approx(expected_loss)
+
+
+def test_scalar_evaluation_reports_separate_l1_and_l2_losses(monkeypatch):
+    policy = _make_policy(monkeypatch)
+    with torch.no_grad():
+        for parameter in policy.parameters():
+            parameter.zero_()
+    batch = {
+        OBS_STATE: torch.zeros(2, 4),
+        OBS_IMAGE: torch.zeros(2, 3, 8, 8),
+        "return": torch.tensor([0.5, 2.0]),
+    }
+
+    class _Accelerator:
+        @staticmethod
+        def autocast():
+            return nullcontext()
+
+        @staticmethod
+        def gather_for_metrics(values):
+            return values
+
+    metrics = evaluate_scalar_predictor(
+        policy,
+        [batch],
+        lambda value: value,
+        _Accelerator(),
+        {},
+    )
+
+    assert metrics["l1_loss"] == pytest.approx(1.25)
+    assert metrics["l2_loss"] == pytest.approx(2.125)
+    assert "loss" not in metrics
+
+
+def test_vision_mlp_uses_one_canonical_image(monkeypatch):
+    policy = _make_policy(monkeypatch)
+
+    assert list(policy.config.image_features) == [OBS_IMAGE]
+    assert policy.model.num_image_features == 1
+
+
+def test_vision_mlp_passes_continuous_state(monkeypatch):
     policy = _make_policy(monkeypatch)
     policy.eval()
     seen_features = []
@@ -118,17 +168,12 @@ def test_vision_mlp_masks_missing_cameras_and_passes_continuous_state(monkeypatc
     state = torch.tensor([[0.1, 0.2, 0.3, 0.4]])
 
     policy.model.predict_values(
-        [torch.rand(1, 3, 8, 8), torch.rand(1, 3, 8, 8)],
-        [torch.ones(1, dtype=torch.bool), torch.zeros(1, dtype=torch.bool)],
+        [torch.rand(1, 3, 8, 8)],
+        [torch.ones(1, dtype=torch.bool)],
         state,
     )
     hook.remove()
 
-    projection_dim = policy.config.vision_mlp_projection_dim
-    torch.testing.assert_close(
-        seen_features[0][:, projection_dim : 2 * projection_dim],
-        torch.zeros(1, projection_dim),
-    )
     torch.testing.assert_close(seen_features[0][:, -policy.config.max_state_dim :], state)
 
 
@@ -191,6 +236,8 @@ def test_vision_mlp_checkpoint_round_trip(monkeypatch, tmp_path):
 
     loaded = PI05Policy.from_pretrained(tmp_path, config=policy.config)
 
+    assert list(loaded.config.image_features) == [OBS_IMAGE]
+    assert loaded.model.num_image_features == 1
     torch.testing.assert_close(loaded.model.value_head.bias, policy.model.value_head.bias)
 
 
@@ -201,6 +248,8 @@ def test_vision_mlp_config_validation():
         _make_config(vision_mlp_hidden_dim=0)
     with pytest.raises(ValueError, match="vision_mlp_dropout"):
         _make_config(vision_mlp_dropout=1.0)
+    with pytest.raises(ValueError, match="value_loss"):
+        _make_config(value_loss="huber")
 
 
 def test_vision_mlp_requires_square_images(monkeypatch):

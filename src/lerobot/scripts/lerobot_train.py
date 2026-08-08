@@ -27,8 +27,10 @@ from torch.optim import Optimizer
 
 from lerobot.configs import parser
 from lerobot.configs.train import TrainPipelineConfig
+from lerobot.configs.types import NormalizationMode
 from lerobot.datasets.factory import make_dataset
 from lerobot.datasets.sampler import EpisodeAwareSampler
+from lerobot.datasets.single_image_dataset import SingleImageDataset
 from lerobot.datasets.utils import cycle
 from lerobot.envs.factory import make_env, make_env_pre_post_processors
 from lerobot.envs.utils import close_envs
@@ -65,6 +67,7 @@ def update_policy(
     lr_scheduler=None,
     lock=None,
     rabc_weights_provider=None,
+    loss_metric_name: str = "loss",
 ) -> tuple[MetricsTracker, dict]:
     """
     Performs a single training step to update the policy's weights.
@@ -82,6 +85,7 @@ def update_policy(
         lr_scheduler: An optional learning rate scheduler.
         lock: An optional lock for thread-safe optimizer updates.
         rabc_weights_provider: Optional RABCWeights instance for sample weighting.
+        loss_metric_name: Metric name used to report the optimized training loss.
 
     Returns:
         A tuple containing:
@@ -142,7 +146,9 @@ def update_policy(
     if has_method(accelerator.unwrap_model(policy, keep_fp32_wrapper=True), "update"):
         accelerator.unwrap_model(policy, keep_fp32_wrapper=True).update()
 
-    train_metrics.loss = loss.item()
+    setattr(train_metrics, loss_metric_name, loss.item())
+    if loss_metric_name != "loss":
+        output_dict.pop("loss", None)
     train_metrics.grad_norm = grad_norm.item()
     train_metrics.lr = optimizer.param_groups[0]["lr"]
     train_metrics.update_s = time.perf_counter() - start_time
@@ -246,7 +252,9 @@ def evaluate_scalar_predictor(policy, dataloader, preprocessor, accelerator, dat
                 (payload["_iql_predictions"], payload["_iql_targets"])
             )
             kind = payload["_iql_prediction_kind"]
-            update_metric("loss", (predictions - targets).square())
+            errors = predictions - targets
+            update_metric("l1_loss", errors.abs())
+            update_metric("l2_loss", errors.square())
             update_metric("iql_prediction_mean", predictions)
             update_metric("iql_target_mean", targets)
             update_metric("iql_abs_error_mean", (predictions - targets).abs())
@@ -270,7 +278,7 @@ def evaluate_scalar_predictor(policy, dataloader, preprocessor, accelerator, dat
 
     policy.train()
     metrics = {name: totals[name] / counts[name] for name in totals}
-    metrics["num_samples"] = counts["loss"]
+    metrics["num_samples"] = counts["l1_loss"]
     metrics["eval_s"] = time.perf_counter() - start_time
     return metrics
 
@@ -357,6 +365,19 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         accelerator.wait_for_everyone()
         if not is_main_process:
             test_dataset = make_dataset(test_cfg)
+
+    if cfg.selected_image_keys is not None:
+        if cfg.dataset.streaming or (cfg.test_dataset is not None and cfg.test_dataset.streaming):
+            raise ValueError("selected_image_keys is not supported with streaming datasets")
+        if cfg.policy.normalization_mapping.get("VISUAL") != NormalizationMode.IDENTITY:
+            raise ValueError("selected_image_keys requires identity normalization for visual inputs")
+        dataset = SingleImageDataset(dataset, cfg.selected_image_keys)
+        if test_dataset is not None:
+            test_dataset = SingleImageDataset(
+                test_dataset,
+                cfg.selected_image_keys,
+                frame_indices=range(0, len(test_dataset), cfg.test_frame_stride),
+            )
 
     # Create environment used for evaluating checkpoints during training on simulation data.
     # On real-world data, no need to create an environment as evaluations are done outside train.py,
@@ -496,6 +517,12 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             )
         logging.info(f"{cfg.steps=} ({format_big_number(cfg.steps)})")
         logging.info(f"{dataset.num_frames=} ({format_big_number(dataset.num_frames)})")
+        if cfg.selected_image_keys is not None:
+            logging.info(
+                "Mixing %s into %s single-image samples",
+                cfg.selected_image_keys,
+                format_big_number(dataset.num_frames),
+            )
         logging.info(f"{dataset.num_episodes=}")
         num_processes = accelerator.num_processes
         effective_bs = cfg.batch_size * num_processes
@@ -529,8 +556,15 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
     )
     test_dataloader = None
     if test_dataset is not None:
+        test_loader_dataset = (
+            test_dataset
+            if cfg.selected_image_keys is not None
+            else torch.utils.data.Subset(
+                test_dataset, range(0, len(test_dataset), cfg.test_frame_stride)
+            )
+        )
         test_dataloader = torch.utils.data.DataLoader(
-            torch.utils.data.Subset(test_dataset, range(0, len(test_dataset), cfg.test_frame_stride)),
+            test_loader_dataset,
             num_workers=cfg.num_workers,
             batch_size=cfg.test_batch_size,
             pin_memory=device.type == "cuda",
@@ -548,8 +582,11 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
 
     policy.train()
 
+    train_loss_metric_name = (
+        f"{cfg.policy.value_loss}_loss" if getattr(cfg.policy, "use_value_model", False) else "loss"
+    )
     train_metrics = {
-        "loss": AverageMeter("loss", ":.3f"),
+        train_loss_metric_name: AverageMeter(train_loss_metric_name, ":.3f"),
         "grad_norm": AverageMeter("grdn", ":.3f"),
         "lr": AverageMeter("lr", ":0.1e"),
         "update_s": AverageMeter("updt_s", ":.3f"),
@@ -573,6 +610,11 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         )
 
     best_test_loss = float("inf")
+    selected_test_loss_metric = (
+        f"{cfg.policy.value_loss}_loss"
+        if getattr(cfg.policy, "use_value_model", False)
+        else "l2_loss"
+    )
 
     def save_policy_checkpoint(checkpoint_dir, label):
         if is_main_process:
@@ -602,6 +644,7 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             optimizer,
             cfg.optimizer.grad_clip_norm,
             accelerator=accelerator,
+            loss_metric_name=train_loss_metric_name,
             lr_scheduler=lr_scheduler,
             rabc_weights_provider=rabc_weights,
         )
@@ -685,9 +728,9 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
             if (
                 cfg.save_checkpoint
                 and cfg.save_best_test_checkpoint
-                and test_metrics["loss"] < best_test_loss
+                and test_metrics[selected_test_loss_metric] < best_test_loss
             ):
-                best_test_loss = test_metrics["loss"]
+                best_test_loss = test_metrics[selected_test_loss_metric]
                 save_policy_checkpoint(cfg.output_dir / CHECKPOINTS_DIR / "best", "best")
                 accelerator.wait_for_everyone()
 

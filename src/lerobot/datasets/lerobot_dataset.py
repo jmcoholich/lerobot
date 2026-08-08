@@ -971,9 +971,11 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self,
         current_ts: float,
         query_indices: dict[str, list[int]] | None = None,
+        video_keys: list[str] | tuple[str, ...] | None = None,
     ) -> dict[str, list[float]]:
         query_timestamps = {}
-        for key in self.meta.video_keys:
+        keys = self.meta.video_keys if video_keys is None else video_keys
+        for key in keys:
             if query_indices is not None and key in query_indices:
                 if self._absolute_to_relative_idx is not None:
                     relative_indices = [self._absolute_to_relative_idx[idx] for idx in query_indices[key]]
@@ -1048,7 +1050,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
     def __len__(self):
         return self.num_frames
 
-    def __getitem__(self, idx) -> dict:
+    def get_item(self, idx, camera_keys: tuple[str, ...] | None = None) -> dict:
+        """Read a frame, optionally decoding only the requested cameras."""
         # Ensure dataset is loaded when we actually need to read from it
         self._ensure_hf_dataset_loaded()
         item = self.hf_dataset[idx]
@@ -1064,14 +1067,19 @@ class LeRobotDataset(torch.utils.data.Dataset):
             for key, val in query_result.items():
                 item[key] = val
 
-        if len(self.meta.video_keys) > 0:
+        video_keys = (
+            self.meta.video_keys
+            if camera_keys is None
+            else [key for key in camera_keys if key in self.meta.video_keys]
+        )
+        if video_keys:
             current_ts = item["timestamp"].item()
-            query_timestamps = self._get_query_timestamps(current_ts, query_indices)
+            query_timestamps = self._get_query_timestamps(current_ts, query_indices, video_keys)
             video_frames = self._query_videos(query_timestamps, ep_idx)
             item = {**video_frames, **item}
 
         if self.image_transforms is not None:
-            image_keys = self.meta.camera_keys
+            image_keys = self.meta.camera_keys if camera_keys is None else camera_keys
             for cam in image_keys:
                 item[cam] = self.image_transforms(item[cam])
 
@@ -1085,6 +1093,9 @@ class LeRobotDataset(torch.utils.data.Dataset):
             item["subtask"] = self.meta.subtasks.iloc[subtask_idx].name
 
         return item
+
+    def __getitem__(self, idx) -> dict:
+        return self.get_item(idx)
 
     def __repr__(self):
         feature_keys = list(self.features)

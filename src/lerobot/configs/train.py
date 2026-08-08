@@ -84,6 +84,8 @@ class TrainPipelineConfig(HubMixin):
 
     # Rename map for the observation to override the image and state keys
     rename_map: dict[str, str] = field(default_factory=dict)
+    # Dataset camera features to expose as shuffled, independent `observation.image` samples.
+    selected_image_keys: list[str] | None = None
     checkpoint_path: Path | None = field(init=False, default=None)
 
     def validate(self) -> None:
@@ -136,6 +138,15 @@ class TrainPipelineConfig(HubMixin):
 
         if isinstance(self.dataset.repo_id, list):
             raise NotImplementedError("LeRobotMultiDataset is not currently implemented.")
+
+        if self.save_best_test_checkpoint and self.test_dataset is None:
+            raise ValueError("save_best_test_checkpoint requires a test_dataset")
+
+        if self.selected_image_keys is not None:
+            if not self.selected_image_keys:
+                raise ValueError("selected_image_keys must contain at least one image key")
+            if len(set(self.selected_image_keys)) != len(self.selected_image_keys):
+                raise ValueError("selected_image_keys must not contain duplicates")
 
         if not self.use_policy_training_preset and (self.optimizer is None or self.scheduler is None):
             raise ValueError("Optimizer and Scheduler must be set when the policy presets are not used.")

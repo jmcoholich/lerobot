@@ -2059,7 +2059,8 @@ class PI05Policy(PreTrainedPolicy):
                 tokens = value_batch[f"{OBS_LANGUAGE_TOKENS}"]
                 masks = value_batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
                 predictions = self.model.predict_values(images, img_masks, tokens, masks)
-            losses = F.mse_loss(predictions, values, reduction="none")
+            loss_fn = F.l1_loss if self.config.value_loss == "l1" else F.mse_loss
+            losses = loss_fn(predictions, values, reduction="none")
             loss_dict = self._build_scalar_prediction_log(
                 kind="value",
                 target_key=target_key,
