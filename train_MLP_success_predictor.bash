@@ -16,6 +16,7 @@ if ! GPU_STATUS=$(nvidia-smi 2>&1) || [[ "$GPU_STATUS" == *ERR* ]]; then
 fi
 
 JOB_NAME=${1:?Pass JOB_NAME as the first argument}
+EXTRA_TRAIN_ARGS=("${@:2}")
 INIT=${INIT:-pi05}
 LOSS=${LOSS:-l2}
 CAMERAS=${CAMERAS:-side,wrist,front}
@@ -143,4 +144,5 @@ python src/lerobot/scripts/lerobot_train.py\
     --log_first_step=true \
     --save_freq=0 \
     --save_best_test_checkpoint=true \
-    --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
+    --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}' \
+    "${EXTRA_TRAIN_ARGS[@]}"

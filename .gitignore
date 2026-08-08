@@ -14,6 +14,7 @@
 vlm_io/
 external_utils/file-000_rewards_returns_by_success.png
 outputs
+slurm_logs/
 eval_logs/
 extracted_data
 .codex
