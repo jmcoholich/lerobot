@@ -25,10 +25,22 @@ LR=${LR:-1e-5}
 TEST_DATASET=${TEST_DATASET:-walle_skywalker_testset}
 WEIGHT_DECAY=${WEIGHT_DECAY:-0.01}
 DROP_PROPRIOCEPTION_INPUT=${DROP_PROPRIOCEPTION_INPUT:-true}
+EQUAL_WEIGHT_TRAJECTORIES=${EQUAL_WEIGHT_TRAJECTORIES:-false}
+REJECT_EPISODES_OVER_1300=${REJECT_EPISODES_OVER_1300:-false}
 SEED=${SEED:-1000}
 if [ "$LOSS" != "l1" ] && [ "$LOSS" != "l2" ]; then
     echo "LOSS must be 'l1' or 'l2', got '$LOSS'" >&2
     exit 1
+fi
+for OPTION in EQUAL_WEIGHT_TRAJECTORIES REJECT_EPISODES_OVER_1300; do
+    if [ "${!OPTION}" != "true" ] && [ "${!OPTION}" != "false" ]; then
+        echo "$OPTION must be true or false, got ${!OPTION}" >&2
+        exit 1
+    fi
+done
+SAMPLING_ARGS=(--equal_weight_trajectories="$EQUAL_WEIGHT_TRAJECTORIES")
+if [ "$REJECT_EPISODES_OVER_1300" = "true" ]; then
+    SAMPLING_ARGS+=(--max_episode_steps=1300)
 fi
 SELECTED_IMAGE_KEYS="["
 SELECTED_CAMERAS=""
@@ -79,6 +91,8 @@ echo "Learning rate: $LR"
 echo "Test dataset: $TEST_DATASET"
 echo "Weight decay: $WEIGHT_DECAY"
 echo "Drop proprioception input: $DROP_PROPRIOCEPTION_INPUT"
+echo "Equal weight per trajectory: $EQUAL_WEIGHT_TRAJECTORIES"
+echo "Reject episodes over 1300 steps: $REJECT_EPISODES_OVER_1300"
 echo "Seed: $SEED"
 
 source /coc/testnvme/$USER/.bashrc
@@ -126,4 +140,5 @@ python src/lerobot/scripts/lerobot_train.py\
     --save_freq=0 \
     --save_best_test_checkpoint=true \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}' \
+    "${SAMPLING_ARGS[@]}" \
     "${EXTRA_TRAIN_ARGS[@]}"

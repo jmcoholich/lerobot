@@ -86,6 +86,10 @@ class TrainPipelineConfig(HubMixin):
     rename_map: dict[str, str] = field(default_factory=dict)
     # Dataset camera features to expose as shuffled, independent `observation.image` samples.
     selected_image_keys: list[str] | None = None
+    # Sample an episode uniformly before sampling a frame-camera pair within it.
+    equal_weight_trajectories: bool = False
+    # Exclude episodes longer than this many frames from both training and testing.
+    max_episode_steps: int | None = None
     checkpoint_path: Path | None = field(init=False, default=None)
 
     def validate(self) -> None:
@@ -147,6 +151,9 @@ class TrainPipelineConfig(HubMixin):
                 raise ValueError("selected_image_keys must contain at least one image key")
             if len(set(self.selected_image_keys)) != len(self.selected_image_keys):
                 raise ValueError("selected_image_keys must not contain duplicates")
+
+        if self.max_episode_steps is not None and self.max_episode_steps <= 0:
+            raise ValueError("max_episode_steps must be positive")
 
         if not self.use_policy_training_preset and (self.optimizer is None or self.scheduler is None):
             raise ValueError("Optimizer and Scheduler must be set when the policy presets are not used.")

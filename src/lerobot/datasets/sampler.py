@@ -59,3 +59,53 @@ class EpisodeAwareSampler:
 
     def __len__(self) -> int:
         return len(self.indices)
+
+
+class EpisodeBalancedSampler:
+    """Sample within eligible episodes, optionally giving every episode equal probability."""
+
+    def __init__(
+        self,
+        sample_indices_by_episode: list[list[int]],
+        equal_weight_episodes: bool,
+        shuffle: bool,
+        seed: int,
+        reset_seed_each_iteration: bool = False,
+    ):
+        if not sample_indices_by_episode:
+            raise ValueError("No eligible episodes remain after episode filtering")
+
+        self.sample_indices_by_episode = sample_indices_by_episode
+        self.indices = [
+            index for episode_indices in sample_indices_by_episode for index in episode_indices
+        ]
+        self.equal_weight_episodes = equal_weight_episodes
+        self.shuffle = shuffle
+        self.seed = seed
+        self.reset_seed_each_iteration = reset_seed_each_iteration
+        self.generator = torch.Generator().manual_seed(seed)
+
+    def __iter__(self) -> Iterator[int]:
+        generator = (
+            torch.Generator().manual_seed(self.seed)
+            if self.reset_seed_each_iteration
+            else self.generator
+        )
+        if self.equal_weight_episodes:
+            for _ in range(len(self)):
+                episode_position = torch.randint(
+                    len(self.sample_indices_by_episode), size=(), generator=generator
+                ).item()
+                episode_samples = self.sample_indices_by_episode[episode_position]
+                sample_position = torch.randint(
+                    len(episode_samples), size=(), generator=generator
+                ).item()
+                yield episode_samples[sample_position]
+        elif self.shuffle:
+            for position in torch.randperm(len(self), generator=generator).tolist():
+                yield self.indices[position]
+        else:
+            yield from self.indices
+
+    def __len__(self) -> int:
+        return len(self.indices)

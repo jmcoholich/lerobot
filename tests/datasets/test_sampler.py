@@ -16,7 +16,7 @@
 from datasets import Dataset
 
 from lerobot.datasets.push_dataset_to_hub.utils import calculate_episode_data_index
-from lerobot.datasets.sampler import EpisodeAwareSampler
+from lerobot.datasets.sampler import EpisodeAwareSampler, EpisodeBalancedSampler
 from lerobot.datasets.utils import (
     hf_transform_to_torch,
 )
@@ -90,3 +90,26 @@ def test_shuffle():
     assert sampler.indices == [0, 1, 2, 3, 4, 5]
     assert len(sampler) == 6
     assert set(sampler) == {0, 1, 2, 3, 4, 5}
+
+
+def test_episode_balanced_sampler_weights_episodes_equally():
+    sampler = EpisodeBalancedSampler(
+        [[0] * 100, list(range(1, 901))],
+        equal_weight_episodes=True,
+        shuffle=True,
+        seed=0,
+        reset_seed_each_iteration=True,
+    )
+
+    samples = list(sampler)
+    assert samples == list(sampler)
+    assert 400 <= samples.count(0) <= 600
+
+
+def test_episode_balanced_sampler_can_only_filter_and_shuffle():
+    sampler = EpisodeBalancedSampler(
+        [[0, 1], [4, 5]], equal_weight_episodes=False, shuffle=True, seed=0
+    )
+
+    assert len(sampler) == 4
+    assert set(sampler) == {0, 1, 4, 5}

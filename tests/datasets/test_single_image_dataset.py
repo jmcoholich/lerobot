@@ -27,7 +27,7 @@ class _Metadata:
     def __init__(self):
         self.info = {
             "total_frames": 3,
-            "total_episodes": 1,
+            "total_episodes": 2,
             "features": {
                 OBS_STATE: {"dtype": "float32", "shape": (1,), "names": ["state"]},
                 IMAGE_KEYS[0]: {
@@ -44,6 +44,7 @@ class _Metadata:
             },
         }
         self.stats = {key: {"mean": torch.tensor([0.0])} for key in self.info["features"]}
+        self.episodes = [{"length": 2}, {"length": 1}]
 
     @property
     def features(self):
@@ -61,7 +62,7 @@ class _Metadata:
 class _Dataset(torch.utils.data.Dataset):
     def __init__(self):
         self.meta = _Metadata()
-        self.num_episodes = 1
+        self.num_episodes = 2
         self.episodes = None
         self.requests = []
 
@@ -137,3 +138,10 @@ def test_shuffled_loader_visits_every_camera_image_once():
 
     torch.testing.assert_close(values.sort().values, torch.tensor([10.0, 11.0, 12.0, 20.0, 21.0, 22.0]))
     assert not torch.equal(values, values.sort().values)
+
+
+def test_episode_sample_indices_respect_frame_stride_and_max_length():
+    dataset = SingleImageDataset(_Dataset(), IMAGE_KEYS, frame_indices=range(0, 3, 2))
+
+    assert dataset.get_episode_sample_indices() == [[0, 1], [2, 3]]
+    assert dataset.get_episode_sample_indices(max_episode_steps=1) == [[2, 3]]

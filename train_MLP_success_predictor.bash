@@ -28,10 +28,22 @@ VISION_PROJECTION_DIM=${VISION_PROJECTION_DIM:-256}
 MLP_HIDDEN_DIM=${MLP_HIDDEN_DIM:-512}
 MLP_DROPOUT=${MLP_DROPOUT:-0.1}
 FREEZE_VISION_ENCODER=${FREEZE_VISION_ENCODER:-true}
+EQUAL_WEIGHT_TRAJECTORIES=${EQUAL_WEIGHT_TRAJECTORIES:-false}
+REJECT_EPISODES_OVER_1300=${REJECT_EPISODES_OVER_1300:-false}
 SEED=${SEED:-1000}
 if [ "$LOSS" != "l1" ] && [ "$LOSS" != "l2" ]; then
     echo "LOSS must be 'l1' or 'l2', got '$LOSS'" >&2
     exit 1
+fi
+for OPTION in EQUAL_WEIGHT_TRAJECTORIES REJECT_EPISODES_OVER_1300; do
+    if [ "${!OPTION}" != "true" ] && [ "${!OPTION}" != "false" ]; then
+        echo "$OPTION must be true or false, got ${!OPTION}" >&2
+        exit 1
+    fi
+done
+SAMPLING_ARGS=(--equal_weight_trajectories="$EQUAL_WEIGHT_TRAJECTORIES")
+if [ "$REJECT_EPISODES_OVER_1300" = "true" ]; then
+    SAMPLING_ARGS+=(--max_episode_steps=1300)
 fi
 SELECTED_IMAGE_KEYS="["
 SELECTED_CAMERAS=""
@@ -85,6 +97,8 @@ echo "Vision projection dim: $VISION_PROJECTION_DIM"
 echo "MLP hidden dim: $MLP_HIDDEN_DIM"
 echo "MLP dropout: $MLP_DROPOUT"
 echo "Freeze vision encoder: $FREEZE_VISION_ENCODER"
+echo "Equal weight per trajectory: $EQUAL_WEIGHT_TRAJECTORIES"
+echo "Reject episodes over 1300 steps: $REJECT_EPISODES_OVER_1300"
 echo "Seed: $SEED"
 
 if [ "$INIT" = "paligemma" ]; then
@@ -145,4 +159,5 @@ python src/lerobot/scripts/lerobot_train.py\
     --save_freq=0 \
     --save_best_test_checkpoint=true \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}' \
+    "${SAMPLING_ARGS[@]}" \
     "${EXTRA_TRAIN_ARGS[@]}"

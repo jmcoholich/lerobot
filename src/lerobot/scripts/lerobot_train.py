@@ -29,7 +29,7 @@ from lerobot.configs import parser
 from lerobot.configs.train import TrainPipelineConfig
 from lerobot.configs.types import NormalizationMode
 from lerobot.datasets.factory import make_dataset
-from lerobot.datasets.sampler import EpisodeAwareSampler
+from lerobot.datasets.sampler import EpisodeAwareSampler, EpisodeBalancedSampler
 from lerobot.datasets.single_image_dataset import SingleImageDataset
 from lerobot.datasets.utils import cycle
 from lerobot.envs.factory import make_env, make_env_pre_post_processors
@@ -531,7 +531,20 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         logging.info(f"{num_total_params=} ({format_big_number(num_total_params)})")
 
     # create dataloader for offline training
-    if hasattr(cfg.policy, "drop_n_last_frames"):
+    use_episode_sampler = cfg.equal_weight_trajectories or cfg.max_episode_steps is not None
+    if use_episode_sampler:
+        if not isinstance(dataset, SingleImageDataset):
+            raise ValueError(
+                "equal_weight_trajectories and max_episode_steps currently require selected_image_keys"
+            )
+        shuffle = False
+        sampler = EpisodeBalancedSampler(
+            dataset.get_episode_sample_indices(cfg.max_episode_steps),
+            equal_weight_episodes=cfg.equal_weight_trajectories,
+            shuffle=True,
+            seed=cfg.seed or 0,
+        )
+    elif hasattr(cfg.policy, "drop_n_last_frames"):
         shuffle = False
         sampler = EpisodeAwareSampler(
             dataset.meta.episodes["dataset_from_index"],
@@ -563,10 +576,20 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
                 test_dataset, range(0, len(test_dataset), cfg.test_frame_stride)
             )
         )
+        test_sampler = None
+        if use_episode_sampler:
+            test_sampler = EpisodeBalancedSampler(
+                test_loader_dataset.get_episode_sample_indices(cfg.max_episode_steps),
+                equal_weight_episodes=cfg.equal_weight_trajectories,
+                shuffle=False,
+                seed=0,
+                reset_seed_each_iteration=True,
+            )
         test_dataloader = torch.utils.data.DataLoader(
             test_loader_dataset,
             num_workers=cfg.num_workers,
             batch_size=cfg.test_batch_size,
+            sampler=test_sampler,
             pin_memory=device.type == "cuda",
             prefetch_factor=2 if cfg.num_workers > 0 else None,
         )

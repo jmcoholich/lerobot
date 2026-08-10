@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import copy
+from bisect import bisect_right
 from collections.abc import Sequence
 from typing import Any
 
@@ -96,6 +97,36 @@ class SingleImageDataset(torch.utils.data.Dataset):
         item = {key: value for key, value in item.items() if key not in self._source_camera_keys}
         item[OBS_IMAGE] = image
         return item
+
+    def get_episode_sample_indices(self, max_episode_steps: int | None = None) -> list[list[int]]:
+        """Return this dataset's sample indices grouped by source episode."""
+        episode_indices = self.dataset.episodes
+        if episode_indices is None:
+            episode_indices = range(self.dataset.num_episodes)
+
+        episode_lengths = [self.dataset.meta.episodes[index]["length"] for index in episode_indices]
+        episode_ends = []
+        total_frames = 0
+        for length in episode_lengths:
+            total_frames += length
+            episode_ends.append(total_frames)
+        if total_frames != len(self.dataset):
+            raise ValueError(
+                f"Episode lengths sum to {total_frames}, but the source dataset has {len(self.dataset)} frames"
+            )
+
+        samples_by_episode = [[] for _ in episode_lengths]
+        num_cameras = len(self.image_keys)
+        for frame_position, frame_index in enumerate(self.frame_indices):
+            episode_position = bisect_right(episode_ends, frame_index)
+            sample_start = frame_position * num_cameras
+            samples_by_episode[episode_position].extend(range(sample_start, sample_start + num_cameras))
+
+        return [
+            samples
+            for samples, length in zip(samples_by_episode, episode_lengths, strict=True)
+            if samples and (max_episode_steps is None or length <= max_episode_steps)
+        ]
 
     @property
     def num_frames(self) -> int:
