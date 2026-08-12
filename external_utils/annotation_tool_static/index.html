@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Frame Annotations</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="identity">
+        <span class="mark" aria-hidden="true"></span>
+        <div>
+          <h1 id="dataset-name">Frame Annotations</h1>
+          <span id="dataset-progress" class="muted">Loading dataset</span>
+        </div>
+      </div>
+      <div class="save-area">
+        <span id="save-status" class="save-status">No pending changes</span>
+        <button id="discard-button" class="button discard" type="button">Discard pending</button>
+        <button id="commit-button" class="button primary" type="button">Write dataset</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="viewer" aria-label="Frame viewer">
+        <div class="viewer-toolbar">
+          <div class="episode-control">
+            <button id="previous-episode" class="icon-button" type="button" title="Previous episode" aria-label="Previous episode">&#8249;</button>
+            <label for="episode-select">Episode</label>
+            <select id="episode-select"></select>
+            <button id="next-episode" class="icon-button" type="button" title="Next episode" aria-label="Next episode">&#8250;</button>
+          </div>
+          <div class="camera-control" aria-label="Camera view">
+            <span>Camera</span>
+            <div id="camera-buttons" class="camera-buttons"></div>
+          </div>
+        </div>
+
+        <div class="image-stage">
+          <img id="frame-image" alt="Current dataset frame">
+          <div id="image-loading" class="image-message loading">Loading frame</div>
+          <div id="image-error" class="image-message error" hidden></div>
+          <div class="frame-badge"><span id="frame-badge">Frame 0</span></div>
+        </div>
+
+        <div class="timeline">
+          <button id="skip-ten-back" class="button navigation-button" type="button" title="Move back 10 frames">-10</button>
+          <button id="previous-frame" class="button navigation-button" type="button" title="Previous frame">-1</button>
+          <div class="timeline-track">
+            <div id="annotation-marks" class="annotation-marks"></div>
+            <input id="frame-slider" type="range" min="0" max="0" value="0" aria-label="Frame position">
+          </div>
+          <button id="next-frame" class="button navigation-button" type="button" title="Advance one frame without annotating">+1</button>
+          <button id="skip-ten" class="button navigation-button" type="button" title="Advance 10 frames">+10</button>
+        </div>
+        <div class="timeline-meta">
+          <span id="frame-position">1 / 1</span>
+          <span id="frame-time">0.000 s</span>
+        </div>
+      </section>
+
+      <aside class="annotation-panel" aria-label="Annotation editor">
+        <div class="episode-metadata">
+          <div class="metadata-field source-field">
+            <span class="metadata-label">Episode source</span>
+            <strong id="episode-fname">Unavailable</strong>
+          </div>
+          <div class="metadata-field outcome-field">
+            <span class="metadata-label">Outcome</span>
+            <span id="episode-outcome" class="outcome-pill unknown">Unknown</span>
+          </div>
+        </div>
+
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Current frame</span>
+            <h2 id="current-frame-title">Frame 0</h2>
+          </div>
+          <span id="frame-state" class="state-pill empty">Unannotated</span>
+        </div>
+
+        <form id="annotation-form">
+          <label for="annotation-input">Annotation</label>
+          <input
+            id="annotation-input"
+            name="annotation"
+            type="text"
+            maxlength="200"
+            autocomplete="off"
+            list="annotation-suggestions"
+            placeholder="Type an annotation"
+          >
+          <datalist id="annotation-suggestions"></datalist>
+          <div class="form-actions">
+            <button id="clear-button" class="button danger" type="button">Clear</button>
+            <button class="button primary" type="submit">Apply</button>
+          </div>
+        </form>
+
+        <div class="quick-section">
+          <div class="section-label">
+            <span>Recent annotations</span>
+          </div>
+          <div id="quick-labels" class="quick-labels"></div>
+        </div>
+
+        <div class="episode-progress">
+          <div class="progress-copy">
+            <span>Episode progress</span>
+            <strong id="episode-progress-text">0 / 0</strong>
+          </div>
+          <progress id="episode-progress" max="1" value="0"></progress>
+        </div>
+      </aside>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <script src="/app.js"></script>
+  </body>
+</html>
