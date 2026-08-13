@@ -21,7 +21,7 @@ N_STEP=${N_STEP:-0}
 DISCOUNT=${DISCOUNT:-0.99}
 TAU=${TAU:-0.005}
 LR=${LR:-1e-5}
-TEST_DATASET=${TEST_DATASET:-walle_skywalker_testset}
+TEST_DATASET=${TEST_DATASET:-walle_skywalker_testset_annotated}
 WEIGHT_DECAY=${WEIGHT_DECAY:-0.01}
 DROP_PROPRIOCEPTION_INPUT=${DROP_PROPRIOCEPTION_INPUT:-false}
 INPUT_DROPOUT_PERCENT=${INPUT_DROPOUT_PERCENT:-50}
@@ -41,14 +41,14 @@ fi
 if [ "$DISCOUNT_KEY" = "1" ]; then
     DISCOUNT_KEY=1.0
 fi
-VALUE_KEY=${VALUE_KEY:-sparse_returns_gamma_${DISCOUNT_KEY}}
+VALUE_KEY=${VALUE_KEY:-annotation_return_gamma_${DISCOUNT_KEY}}
 if [ "$SEED" != "1000" ]; then
     JOB_NAME="${JOB_NAME}_seed_${SEED}"
 fi
 PALIGEMMA_PRETRAINED_PATH=google/paligemma-3b-pt-224
 PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 OUTDIR=./outputs/$JOB_NAME
-DATASET='plug5_offline_rl_dataset'
+DATASET=${DATASET:-plug5_offline_rl_dataset_annotated}
 DATA_ROOT=/coc/testnvme/jcoholich3/lerobot_data
 
 echo "Job name: $JOB_NAME"
@@ -57,7 +57,7 @@ echo "Value key: $VALUE_KEY"
 echo "Vision initialization: $INIT"
 echo "N-step return horizon: $N_STEP"
 echo "Discount factor: $DISCOUNT"
-echo "Reward key: sparse_reward"
+echo "Reward key: annotation_reward"
 echo "Target network tau: $TAU"
 echo "Learning rate: $LR"
 echo "Test dataset: $TEST_DATASET"
@@ -98,7 +98,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.compile_model=false \
     --policy.gradient_checkpointing=true \
     --wandb.enable=true \
-    --wandb.project=value_function_2 \
+    --wandb.project=value_fn_annotated \
     --policy.dtype=bfloat16 \
     --policy.freeze_vision_encoder=$FREEZE_VISION_ENCODER \
     --policy.train_expert_only=false \
@@ -112,7 +112,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.value_dim=1 \
     --policy.value_bootstrap_steps="$N_STEP" \
     --policy.value_discount="$DISCOUNT" \
-    --policy.value_reward_key=sparse_reward \
+    --policy.value_reward_key=annotation_reward \
     --policy.value_target_tau="$TAU" \
     --steps=3000 \
     --policy.optimizer_lr=$LR \
