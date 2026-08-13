@@ -243,6 +243,19 @@ def test_batch_to_transition_with_index_fields():
     assert comp_data["task"] == batch["task"]
 
 
+def test_batch_to_transition_preserves_annotation_targets():
+    batch = {
+        "annotation_reward": torch.tensor([[0.0], [1.0]]),
+        "annotation_reward_is_pad": torch.tensor([False, False]),
+        "annotation_return_gamma_0.99": torch.tensor([0.99]),
+    }
+
+    processed_batch = transition_to_batch(batch_to_transition(batch))
+
+    for key, value in batch.items():
+        assert torch.equal(processed_batch[key], value)
+
+
 def testtransition_to_batch_with_index_fields():
     """Test that transition_to_batch handles index and task_index fields correctly."""
 

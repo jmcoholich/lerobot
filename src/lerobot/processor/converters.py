@@ -174,10 +174,13 @@ def _extract_complementary_data(batch: dict[str, Any]) -> dict[str, Any]:
     episode_index_key = {"episode_index": batch["episode_index"]} if "episode_index" in batch else {}
     reward_key = {"reward": batch["reward"]} if "reward" in batch else {}
     sparse_reward_key = {"sparse_reward": batch["sparse_reward"]} if "sparse_reward" in batch else {}
+    annotation_reward_key = (
+        {"annotation_reward": batch["annotation_reward"]} if "annotation_reward" in batch else {}
+    )
     returns_keys = {
         k: v
         for k, v in batch.items()
-        if k.startswith(("returns_gamma_", "sparse_returns_gamma_"))
+        if k.startswith(("returns_gamma_", "sparse_returns_gamma_", "annotation_return_gamma_"))
     }
     q_keys = {
         k: v
@@ -194,6 +197,7 @@ def _extract_complementary_data(batch: dict[str, Any]) -> dict[str, Any]:
         **episode_index_key,
         **reward_key,
         **sparse_reward_key,
+        **annotation_reward_key,
         **returns_keys,
         **q_keys,
     }
