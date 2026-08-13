@@ -123,10 +123,10 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.device=cuda \
     --batch_size=128 \
     --test_batch_size=128 \
-    --test_freq=10 \
+    --test_freq=20 \
     --test_first_step=true \
     --test_frame_stride=10 \
-    --log_freq=100 \
+    --log_freq=20 \
     --log_first_step=true \
     --save_freq=0 \
     --save_best_test_checkpoint=true \
