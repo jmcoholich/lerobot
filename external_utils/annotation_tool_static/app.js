@@ -141,6 +141,7 @@ function frameImageUrl(frame) {
   const params = new URLSearchParams({
     episode: state.episode_index,
     frame: frame.frame_index,
+    cache_key: state.frame_cache_key,
   });
   if (selectedCameraKey === combinedCameraKey) {
     const combined = cameraModes().find((mode) => mode.key === combinedCameraKey);
@@ -526,10 +527,25 @@ document.addEventListener("keydown", (event) => {
   const isTyping = event.target === elements.annotationInput;
   if (!isTyping && event.key === "ArrowLeft") {
     event.preventDefault();
-    moveFrame(-1);
+    changeEpisode(-1);
   } else if (!isTyping && event.key === "ArrowRight") {
     event.preventDefault();
+    changeEpisode(1);
+  } else if (!isTyping && event.key.toLowerCase() === "j") {
+    event.preventDefault();
+    moveFrame(-1);
+  } else if (!isTyping && event.key.toLowerCase() === "k") {
+    event.preventDefault();
     moveFrame(1);
+  } else if (!isTyping && event.key.toLowerCase() === "h") {
+    event.preventDefault();
+    moveFrame(-10);
+  } else if (!isTyping && event.key.toLowerCase() === "l") {
+    event.preventDefault();
+    moveFrame(10);
+  } else if (!isTyping && event.key.toLowerCase() === "w") {
+    event.preventDefault();
+    commit(true);
   } else if (!isTyping && /^[1-9]$/.test(event.key)) {
     const label = state.labels[Number(event.key) - 1];
     if (label) {

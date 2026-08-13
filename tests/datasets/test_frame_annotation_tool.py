@@ -211,6 +211,7 @@ class FrameAnnotationToolTest(unittest.TestCase):
                 state = json.load(response)
             self.assertEqual(state["episode_index"], 0)
             self.assertEqual(len(state["frames"]), 2)
+            self.assertTrue(state["frame_cache_key"])
             self.assertEqual(state["episode_summary"]["fname"], "episode_zero.h5")
             self.assertEqual(state["episode_summary"]["outcome"], "partial success")
 
@@ -247,6 +248,7 @@ class FrameAnnotationToolTest(unittest.TestCase):
             self.assertIn("renderCameraButtons", javascript)
             self.assertIn("Front + Side", javascript)
             self.assertIn("/api/combined-frame", javascript)
+            self.assertIn("cache_key: state.frame_cache_key", javascript)
             self.assertNotIn("autoAdvance", javascript)
             self.assertIn("annotation_count", javascript)
             self.assertIn("loadingTimer", javascript)
@@ -256,6 +258,11 @@ class FrameAnnotationToolTest(unittest.TestCase):
             self.assertNotIn("AbortController", javascript)
             self.assertNotIn("frameLoadTimer", javascript)
             self.assertNotIn("const prefetch = new Image()", javascript)
+            self.assertIn('event.key.toLowerCase() === "j"', javascript)
+            self.assertIn('event.key.toLowerCase() === "k"', javascript)
+            self.assertIn('event.key.toLowerCase() === "h"', javascript)
+            self.assertIn('event.key.toLowerCase() === "l"', javascript)
+            self.assertIn('event.key.toLowerCase() === "w"', javascript)
         finally:
             server.shutdown()
             thread.join(timeout=5)

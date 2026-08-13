@@ -27,7 +27,9 @@ python external_utils/annotation_tool.py /path/to/dataset \
 ```
 
 Labels used in the browser are remembered and shown first. The numbered label buttons can also be applied with
-keys `1` through `9`. Left and right arrow keys move between frames when the annotation text field is not focused.
+keys `1` through `9`. When the annotation text field is not focused, left and right arrow keys move between episodes,
+`J` and `K` move to the previous and next frame, `H` and `L` move backward and forward 10 frames, and `W` writes
+pending annotations to the dataset.
 The label order is stable: new labels are appended, using a label does not move it, and labels can be dragged to save
 a new order.
 

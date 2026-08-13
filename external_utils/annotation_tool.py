@@ -9,6 +9,7 @@ import concurrent.futures
 import io
 import json
 import math
+import secrets
 import signal
 import sqlite3
 import threading
@@ -363,6 +364,7 @@ class AnnotationService:
         self.column = column
         self.default_labels = list(dict.fromkeys(label for label in default_labels if label))
         self.max_image_width = max_image_width
+        self.frame_cache_key = secrets.token_urlsafe(12)
         self.catalog = DatasetCatalog(root, column)
         self.store = DraftStore(root / "meta" / "annotation_drafts.sqlite3")
         self.commit_lock = threading.Lock()
@@ -421,6 +423,7 @@ class AnnotationService:
         return {
             "dataset": self.root.name,
             "column": self.column,
+            "frame_cache_key": self.frame_cache_key,
             "episodes": self.catalog.episode_indices,
             "episode_summaries": episode_summaries,
             "episode_index": episode_index,
