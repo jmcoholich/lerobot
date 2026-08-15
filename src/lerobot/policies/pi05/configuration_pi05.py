@@ -98,6 +98,7 @@ class PI05Config(PreTrainedConfig):
     q_key: str = "q_values"  # Batch key to regress when use_q_model is enabled.
     q_dim: int = 1  # Number of scalar Q-values to predict.
     drop_proprioception_input: bool = False  # Zero the proprioception input.
+    blackout_front_camera_input: bool = False  # Replace the front-camera input with a black image.
     input_dropout_percent: float = 0.0  # Training-only probability to zero proprioception/images.
 
     # Optimizer settings: see openpi `AdamW`

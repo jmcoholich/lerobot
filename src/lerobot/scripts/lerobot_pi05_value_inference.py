@@ -143,7 +143,10 @@ def unnormalize_values(values: torch.Tensor, value_key: str, value_stats: dict, 
 
 def episode_targets(dataset_root: Path, episode_index: int, value_key: str) -> dict[int, float]:
     table = pa_ds.dataset(dataset_root / "data", format="parquet").to_table(
-        columns=["frame_index", value_key],
+        columns={
+            "frame_index": pa_ds.field("frame_index"),
+            value_key: pa_ds.field(value_key),
+        },
         filter=pa_ds.field("episode_index") == episode_index,
     )
     data = table.to_pydict()
@@ -165,6 +168,9 @@ def predict_values(
     preprocessor.reset()
     for batch in DataLoader(Subset(dataset, indices), batch_size=batch_size, shuffle=False):
         with torch.inference_mode():
+            # Value prediction only consumes observations; avoid normalizing actions from
+            # evaluation datasets whose action space differs from the training dataset.
+            batch.pop("action", None)
             pred = policy.predict_values(preprocessor(batch)).detach().float().cpu()
             pred = unnormalize_values(pred, value_key, value_stats, value_norm_mode)
         values.extend(to_float_list(pred))

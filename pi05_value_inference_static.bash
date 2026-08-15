@@ -1,5 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=pi05_value_infer
+#SBATCH --output=slurm_logs/%x_%A_%a.out
+#SBATCH --error=slurm_logs/%x_%A_%a.err
 #SBATCH -p kira-lab
 #SBATCH -A kira-lab
 #SBATCH -G 2080_ti:1
@@ -8,6 +10,8 @@
 #SBATCH --qos=short
 #SBATCH --array=0-297%20
 #SBATCH --exclude=ig-88,megazord,cyborg,megazord,sonny,spd-13
+
+set -e
 
 source /coc/testnvme/$USER/.bashrc
 conda activate lerobot

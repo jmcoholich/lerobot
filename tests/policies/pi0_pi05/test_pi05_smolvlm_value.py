@@ -343,6 +343,29 @@ def test_smolvlm_value_processor_omits_tokenizer():
     ]
 
 
+def test_pi05_front_camera_blackout_uses_black_normalized_pixels():
+    policy = object.__new__(PI05Policy)
+    nn.Module.__init__(policy)
+    policy.config = SimpleNamespace(
+        image_features={"observation.images.camera_front": None, IMAGE_KEY: None},
+        use_value_model=True,
+        value_backbone="vision_mlp",
+        blackout_front_camera_input=True,
+        image_resolution=(2, 2),
+    )
+    policy.model = nn.Linear(1, 1)
+    policy.model.image_resolution = (2, 2)
+    batch = {
+        "observation.images.camera_front": torch.full((1, 3, 2, 2), 0.5),
+        IMAGE_KEY: torch.full((1, 3, 2, 2), 0.5),
+    }
+
+    images, _ = policy._preprocess_images(batch)
+
+    torch.testing.assert_close(images[0], torch.full_like(images[0], -1.0))
+    torch.testing.assert_close(images[1], torch.zeros_like(images[1]))
+
+
 def test_smolvlm_bootstrap_requests_future_observations_and_sparse_rewards():
     config = _make_config(value_bootstrap_steps=3)
     metadata = SimpleNamespace(

@@ -135,4 +135,4 @@ python src/lerobot/scripts/lerobot_train.py\
     --save_best_test_checkpoint=true \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
 
-# sbatch --array=1,5,45,50,51,52,53,54,55,56,57,58,59 pi05_value_inference_static.bash "$JOB_NAME" plug5_offline_rl_dataset last 1,5,45,50,51,52,53,54,55,56,57,58,59
+# sbatch --array=1,5,45,50,51,52,53,54,55,56,57,58,59,7 pi05_value_inference_static.bash "$JOB_NAME" plug5_offline_rl_dataset last 1,5,45,50,51,52,53,54,55,56,57,58,59,7

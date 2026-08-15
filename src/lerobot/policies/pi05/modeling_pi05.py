@@ -1791,6 +1791,9 @@ class PI05Policy(PreTrainedPolicy):
             if not normalize_before_resize:
                 img = img * 2.0 - 1.0
 
+            if self.config.blackout_front_camera_input and key == "observation.images.camera_front":
+                img = torch.full_like(img, -1.0)
+
             # from openpi preprocess_observation_pytorch: Convert back to [B, C, H, W] format if it was originally channels-first
             if is_channels_first:
                 img = img.permute(0, 3, 1, 2)  # [B, H, W, C] -> [B, C, H, W]

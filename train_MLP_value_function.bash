@@ -24,11 +24,15 @@ LR=${LR:-1e-5}
 TEST_DATASET=${TEST_DATASET:-walle_skywalker_testset_annotated}
 WEIGHT_DECAY=${WEIGHT_DECAY:-0.01}
 DROP_PROPRIOCEPTION_INPUT=${DROP_PROPRIOCEPTION_INPUT:-false}
+BLACKOUT_FRONT_CAMERA_INPUT=${BLACKOUT_FRONT_CAMERA_INPUT:-false}
 INPUT_DROPOUT_PERCENT=${INPUT_DROPOUT_PERCENT:-50}
 VISION_PROJECTION_DIM=${VISION_PROJECTION_DIM:-256}
 MLP_HIDDEN_DIM=${MLP_HIDDEN_DIM:-512}
 MLP_DROPOUT=${MLP_DROPOUT:-0.1}
 FREEZE_VISION_ENCODER=${FREEZE_VISION_ENCODER:-true}
+STEPS=${STEPS:-3000}
+WARMUP_STEPS=${WARMUP_STEPS:-3000}
+WANDB_PROJECT=${WANDB_PROJECT:-value_fn_annotated}
 SEED=${SEED:-1000}
 if ! [[ "$N_STEP" =~ ^[0-9]+$ ]]; then
     echo "N_STEP must be a non-negative integer, got '$N_STEP'" >&2
@@ -63,11 +67,15 @@ echo "Learning rate: $LR"
 echo "Test dataset: $TEST_DATASET"
 echo "Weight decay: $WEIGHT_DECAY"
 echo "Drop proprioception input: $DROP_PROPRIOCEPTION_INPUT"
+echo "Blackout front camera input: $BLACKOUT_FRONT_CAMERA_INPUT"
 echo "Input dropout percent: $INPUT_DROPOUT_PERCENT"
 echo "Vision projection dim: $VISION_PROJECTION_DIM"
 echo "MLP hidden dim: $MLP_HIDDEN_DIM"
 echo "MLP dropout: $MLP_DROPOUT"
 echo "Freeze vision encoder: $FREEZE_VISION_ENCODER"
+echo "Training steps: $STEPS"
+echo "Warmup steps: $WARMUP_STEPS"
+echo "W&B project: $WANDB_PROJECT"
 echo "Seed: $SEED"
 
 if [ "$INIT" = "paligemma" ]; then
@@ -98,7 +106,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.compile_model=false \
     --policy.gradient_checkpointing=true \
     --wandb.enable=true \
-    --wandb.project=value_fn_annotated \
+    --wandb.project="$WANDB_PROJECT" \
     --policy.dtype=bfloat16 \
     --policy.freeze_vision_encoder=$FREEZE_VISION_ENCODER \
     --policy.train_expert_only=false \
@@ -114,11 +122,12 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.value_discount="$DISCOUNT" \
     --policy.value_reward_key=annotation_reward \
     --policy.value_target_tau="$TAU" \
-    --steps=3000 \
+    --steps=$STEPS \
     --policy.optimizer_lr=$LR \
-    --policy.scheduler_warmup_steps=3000 \
+    --policy.scheduler_warmup_steps=$WARMUP_STEPS \
     --policy.optimizer_weight_decay=$WEIGHT_DECAY \
     --policy.drop_proprioception_input=$DROP_PROPRIOCEPTION_INPUT \
+    --policy.blackout_front_camera_input=$BLACKOUT_FRONT_CAMERA_INPUT \
     --policy.input_dropout_percent=$INPUT_DROPOUT_PERCENT \
     --policy.device=cuda \
     --batch_size=128 \
