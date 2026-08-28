@@ -26,6 +26,7 @@ class EpisodeAwareSampler:
         episode_indices_to_use: list | None = None,
         drop_n_first_frames: int = 0,
         drop_n_last_frames: int = 0,
+        frame_stride: int = 1,
         shuffle: bool = False,
     ):
         """Sampler that optionally incorporates episode boundary information.
@@ -37,6 +38,7 @@ class EpisodeAwareSampler:
                                     Assumes that episodes are indexed from 0 to N-1.
             drop_n_first_frames: Number of frames to drop from the start of each episode.
             drop_n_last_frames: Number of frames to drop from the end of each episode.
+            frame_stride: Keep every nth selected frame.
             shuffle: Whether to shuffle the indices.
         """
         indices = []
@@ -45,6 +47,10 @@ class EpisodeAwareSampler:
         ):
             if episode_indices_to_use is None or episode_idx in episode_indices_to_use:
                 indices.extend(range(start_index + drop_n_first_frames, end_index - drop_n_last_frames))
+
+        if frame_stride < 1:
+            raise ValueError(f"frame_stride must be positive, got {frame_stride}")
+        indices = indices[::frame_stride]
 
         self.indices = indices
         self.shuffle = shuffle

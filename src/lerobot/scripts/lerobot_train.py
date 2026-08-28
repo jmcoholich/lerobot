@@ -337,26 +337,40 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
 
+    train_episodes = cfg.train_episodes if cfg.train_episodes is not None else cfg.dataset.episodes
+    if train_episodes is not None and not train_episodes:
+        raise ValueError("train_episodes must not be empty")
+    if cfg.test_episodes is not None and not cfg.test_episodes:
+        raise ValueError("test_episodes must not be empty")
+    if cfg.test_episodes is not None and train_episodes is None:
+        raise ValueError("train_episodes must be set when test_episodes is set")
+    if train_episodes is not None and cfg.test_episodes is not None:
+        overlap = set(train_episodes) & set(cfg.test_episodes)
+        if overlap:
+            raise ValueError(f"train_episodes and test_episodes overlap: {sorted(overlap)}")
+
+    # Load the dataset once; samplers below select the training and held-out episodes.
+    dataset_cfg = dataclasses.replace(cfg, dataset=dataclasses.replace(cfg.dataset, episodes=None))
+
     # Dataset loading synchronization: main process downloads first to avoid race conditions
     if is_main_process:
         logging.info("Creating dataset")
-        dataset = make_dataset(cfg)
+        dataset = make_dataset(dataset_cfg)
 
     accelerator.wait_for_everyone()
 
     # Now all other processes can safely load the dataset
     if not is_main_process:
-        dataset = make_dataset(cfg)
+        dataset = make_dataset(dataset_cfg)
 
-    test_dataset = None
-    if cfg.test_dataset is not None:
-        test_cfg = dataclasses.replace(cfg, dataset=cfg.test_dataset)
-        if is_main_process:
-            logging.info("Creating test dataset")
-            test_dataset = make_dataset(test_cfg)
-        accelerator.wait_for_everyone()
-        if not is_main_process:
-            test_dataset = make_dataset(test_cfg)
+    requested_episodes = set(train_episodes or []) | set(cfg.test_episodes or [])
+    invalid_episodes = sorted(
+        episode for episode in requested_episodes if episode < 0 or episode >= dataset.meta.total_episodes
+    )
+    if invalid_episodes:
+        raise ValueError(
+            f"Episode indices out of range for {dataset.meta.total_episodes} episodes: {invalid_episodes}"
+        )
 
     # Create environment used for evaluating checkpoints during training on simulation data.
     # On real-world data, no need to create an environment as evaluations are done outside train.py,
@@ -504,35 +518,36 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
         logging.info(f"{num_total_params=} ({format_big_number(num_total_params)})")
 
     # create dataloader for offline training
-    if hasattr(cfg.policy, "drop_n_last_frames"):
-        shuffle = False
-        sampler = EpisodeAwareSampler(
-            dataset.meta.episodes["dataset_from_index"],
-            dataset.meta.episodes["dataset_to_index"],
-            episode_indices_to_use=dataset.episodes,
-            drop_n_last_frames=cfg.policy.drop_n_last_frames,
-            shuffle=True,
-        )
-    else:
-        shuffle = True
-        sampler = None
+    sampler = EpisodeAwareSampler(
+        dataset.meta.episodes["dataset_from_index"],
+        dataset.meta.episodes["dataset_to_index"],
+        episode_indices_to_use=train_episodes,
+        drop_n_last_frames=getattr(cfg.policy, "drop_n_last_frames", 0),
+        shuffle=True,
+    )
 
     dataloader = torch.utils.data.DataLoader(
         dataset,
         num_workers=cfg.num_workers,
         batch_size=cfg.batch_size,
-        shuffle=shuffle and not cfg.dataset.streaming,
         sampler=sampler,
         pin_memory=device.type == "cuda",
         drop_last=False,
         prefetch_factor=2 if cfg.num_workers > 0 else None,
     )
     test_dataloader = None
-    if test_dataset is not None:
+    if cfg.test_episodes is not None:
+        test_sampler = EpisodeAwareSampler(
+            dataset.meta.episodes["dataset_from_index"],
+            dataset.meta.episodes["dataset_to_index"],
+            episode_indices_to_use=cfg.test_episodes,
+            frame_stride=cfg.test_frame_stride,
+        )
         test_dataloader = torch.utils.data.DataLoader(
-            torch.utils.data.Subset(test_dataset, range(0, len(test_dataset), cfg.test_frame_stride)),
+            dataset,
             num_workers=cfg.num_workers,
             batch_size=cfg.test_batch_size,
+            sampler=test_sampler,
             pin_memory=device.type == "cuda",
             prefetch_factor=2 if cfg.num_workers > 0 else None,
         )

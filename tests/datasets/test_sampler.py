@@ -72,6 +72,11 @@ def test_episode_indices_to_use():
     assert list(sampler) == [0, 1, 3, 4, 5]
 
 
+def test_frame_stride():
+    sampler = EpisodeAwareSampler([0, 3], [3, 6], frame_stride=2)
+    assert sampler.indices == [0, 2, 4]
+
+
 def test_shuffle():
     dataset = Dataset.from_dict(
         {

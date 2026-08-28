@@ -21,7 +21,8 @@ N_STEP=${N_STEP:-0}
 DISCOUNT=${DISCOUNT:-0.95}
 TAU=${TAU:-0.05}
 LR=${LR:-3e-5}
-TEST_DATASET=${TEST_DATASET:-walle_skywalker_testset_annotated}
+TRAIN_EPISODES=${TRAIN_EPISODES:?Set TRAIN_EPISODES to indices (0,2,4) or an end-exclusive range (0:80)}
+TEST_EPISODES=${TEST_EPISODES:?Set TEST_EPISODES to indices (1,3,5) or an end-exclusive range (80:100)}
 WEIGHT_DECAY=${WEIGHT_DECAY:-0.01}
 DROP_PROPRIOCEPTION_INPUT=${DROP_PROPRIOCEPTION_INPUT:-false}
 BLACKOUT_FRONT_CAMERA_INPUT=${BLACKOUT_FRONT_CAMERA_INPUT:-false}
@@ -55,6 +56,31 @@ OUTDIR=./outputs/$JOB_NAME
 DATASET=${DATASET:-plug5_offline_rl_dataset_annotated}
 DATA_ROOT=/coc/testnvme/jcoholich3/lerobot_data
 
+episode_indices_json() {
+    local spec=$1 start end result index
+    if [[ "$spec" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+        echo "[$spec]"
+    elif [[ "$spec" =~ ^([0-9]+):([0-9]+)$ ]]; then
+        start=${BASH_REMATCH[1]}
+        end=${BASH_REMATCH[2]}
+        if (( start >= end )); then
+            echo "Episode range must be nonempty and end-exclusive, got '$spec'" >&2
+            return 1
+        fi
+        result=$start
+        for ((index = start + 1; index < end; index++)); do
+            result+=",$index"
+        done
+        echo "[$result]"
+    else
+        echo "Episode indices must be comma-separated integers or START:END, got '$spec'" >&2
+        return 1
+    fi
+}
+
+TRAIN_EPISODES_JSON=$(episode_indices_json "$TRAIN_EPISODES") || exit 1
+TEST_EPISODES_JSON=$(episode_indices_json "$TEST_EPISODES") || exit 1
+
 echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
 echo "Value key: $VALUE_KEY"
@@ -64,7 +90,8 @@ echo "Discount factor: $DISCOUNT"
 echo "Reward key: annotation_reward"
 echo "Target network tau: $TAU"
 echo "Learning rate: $LR"
-echo "Test dataset: $TEST_DATASET"
+echo "Train episodes: $TRAIN_EPISODES"
+echo "Test episodes: $TEST_EPISODES"
 echo "Weight decay: $WEIGHT_DECAY"
 echo "Drop proprioception input: $DROP_PROPRIOCEPTION_INPUT"
 echo "Blackout front camera input: $BLACKOUT_FRONT_CAMERA_INPUT"
@@ -96,8 +123,8 @@ export PYTHONPATH="$PWD/src:${PYTHONPATH}"
 python src/lerobot/scripts/lerobot_train.py\
     --dataset.repo_id=$DATASET \
     --dataset.root="$DATA_ROOT/$DATASET" \
-    --test_dataset.repo_id=$TEST_DATASET \
-    --test_dataset.root="$DATA_ROOT/$TEST_DATASET" \
+    --train_episodes="$TRAIN_EPISODES_JSON" \
+    --test_episodes="$TEST_EPISODES_JSON" \
     --policy.type=pi05 \
     --seed=$SEED \
     --output_dir=$OUTDIR \
