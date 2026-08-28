@@ -32,7 +32,6 @@ __all__ = [
     "PI05Config",
     "PI0FastConfig",
     "SmolVLAConfig",
-    "SARMConfig",
     "TDMPCConfig",
     "VQBeTConfig",
     "GrootConfig",
