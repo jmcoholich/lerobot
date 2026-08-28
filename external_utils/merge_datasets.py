@@ -3,11 +3,11 @@ from pathlib import Path
 from lerobot.datasets.aggregate import aggregate_datasets
 
 datasets = [
-    "walle_skywalker_testset",
-    "plug5_offline_rl_dataset",
+    "walle_skywalker_testset_annotated",
+    "plug5_offline_rl_dataset_annotated",
 ]
 
-merged_dataset_name = "plug5_offline_rl_dataset_walle_skywalker_testset"
+merged_dataset_name = "plug5_offline_rl_dataset_walle_skywalker_testset_annotated"
 
 DATASET_DIR = Path("/coc/testnvme/jcoholich3/lerobot_data")
 # DATASET_DIR = Path("/data3/lerobot_data")
