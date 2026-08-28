@@ -1,5 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=pi05_vision_mlp
+#SBATCH --output=slurm_logs/%x_%j.out
+#SBATCH --error=slurm_logs/%x_%j.err
 #SBATCH -p kira-lab
 #SBATCH -A kira-lab
 #SBATCH -G a40:1
