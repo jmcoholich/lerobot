@@ -12,10 +12,12 @@ OUTDIR=./outputs/$JOB_NAME
 CHUNK=40
 LR=5e-5
 DATASET=$1
+TEMPERATURE=$3
 PI05_BASE_PRETRAINED_PATH=/coc/testnvme/jcoholich3/.cache/huggingface/hub/models--lerobot--pi05_base/snapshots/9e55186ad36e66b95cda57bc47818d9e6237ae30
 
 echo "Job name: $JOB_NAME"
 echo "Output dir: $OUTDIR"
+echo "AWR temperature: $TEMPERATURE"
 echo "PI05 pretrained path: $PI05_BASE_PRETRAINED_PATH"
 
 source /coc/testnvme/$USER/.bashrc
@@ -35,6 +37,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.dtype=bfloat16 \
     --policy.freeze_vision_encoder=false \
     --policy.train_expert_only=false \
+    --policy.awr_temperature=$TEMPERATURE \
     --policy.chunk_size=$CHUNK \
     --policy.n_action_steps=$CHUNK \
     --steps=6000 \

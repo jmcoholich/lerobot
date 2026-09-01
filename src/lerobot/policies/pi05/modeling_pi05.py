@@ -1222,7 +1222,12 @@ class PI05Policy(PreTrainedPolicy):
             "loss_per_dim": losses.mean(dim=[0, 1]).detach().cpu().numpy().tolist(),
         }
 
-        loss = losses.mean()
+        if self.config.awr_temperature is not None:
+            advantages = batch["awr_advantage"].reshape(losses.shape[0]).to(losses.dtype)
+            weights = torch.exp(self.config.awr_temperature * advantages)
+            loss = (losses.mean(dim=[1, 2]) * weights).mean()
+        else:
+            loss = losses.mean()
         loss_dict["loss"] = loss.item()
         return loss, loss_dict
 
