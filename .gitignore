@@ -79,6 +79,7 @@ share/python-wheels/
 develop-eggs/
 *.egg-info/
 .installed.cfg
+plots/
 *.egg
 MANIFEST
 lib/
