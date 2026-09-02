@@ -5,7 +5,7 @@ set -euo pipefail
 DATASET=plug5_offline_rl_dataset_walle_skywalker_testset_annotated
 WANDB_PROJECT=OOF_value_fn
 NUM_EPISODES=388
-JOB_PREFIX=${1:-off_value_fn_random_unfrozen_dropout0}
+JOB_PREFIX=${1:-off_value_fn_random_paligemma}
 
 # Generated once with random.Random(1000).shuffle(range(388)).
 TEST_FOLDS=(
@@ -36,9 +36,8 @@ for fold in "${!TEST_FOLDS[@]}"; do
     echo "Submitting $job_name with ${#test_indices[@]} random test episodes"
     DATASET="$DATASET" \
     WANDB_PROJECT="$WANDB_PROJECT" \
-    INPUT_DROPOUT_PERCENT=0 \
-    FREEZE_VISION_ENCODER=false \
+    INIT=paligemma \
     TRAIN_EPISODES="$train_episodes" \
     TEST_EPISODES="$test_episodes" \
-        sbatch train_MLP_value_function.bash "$job_name"
+        sbatch pi05_iql_train_value_fn.bash "$job_name"
 done

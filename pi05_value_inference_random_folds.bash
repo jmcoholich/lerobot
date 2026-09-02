@@ -6,7 +6,7 @@ EPISODES=1,5,45,50,51,52,53,54,55,56,57,58,59,7
 dependency=()
 
 for fold in {1..5}; do
-    job_name="off_value_fn_random_fold_${fold}"
+    job_name="off_value_fn_random_unfrozen_dropout0_fold_${fold}"
     echo "Submitting inference for $job_name"
     submission=$(sbatch --parsable \
         "${dependency[@]}" \
