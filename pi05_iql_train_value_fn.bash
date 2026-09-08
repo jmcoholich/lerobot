@@ -131,6 +131,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --output_dir=$OUTDIR \
     --job_name=$JOB_NAME \
     --policy.repo_id=your_repo_id \
+    --policy.push_to_hub=false \
     "${INIT_ARGS[@]}" \
     --policy.compile_model=false \
     --policy.gradient_checkpointing=true \

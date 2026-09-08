@@ -132,6 +132,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --output_dir=$OUTDIR \
     --job_name=$JOB_NAME \
     --policy.repo_id=your_repo_id \
+    --policy.push_to_hub=false \
     --policy.compile_model=false \
     --policy.gradient_checkpointing=true \
     --wandb.enable=true \
@@ -161,10 +162,10 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.device=cuda \
     --batch_size=128 \
     --test_batch_size=128 \
-    --test_freq=20 \
+    --test_freq=50 \
     --test_first_step=true \
     --test_frame_stride=10 \
-    --log_freq=20 \
+    --log_freq=50 \
     --log_first_step=true \
     --save_freq=0 \
     --save_best_test_checkpoint=true \
