@@ -487,6 +487,9 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
         # Load pretrained policy
         policy = None if cfg.policy is None else make_policy(cfg.policy, ds_meta=dataset.meta)
+        configure_replay = getattr(policy, "configure_replay_recording", None)
+        if configure_replay is not None:
+            configure_replay(asdict(cfg))
         preprocessor = None
         postprocessor = None
         if cfg.policy is not None:

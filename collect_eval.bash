@@ -9,28 +9,40 @@ fi
 set -m
 
 RECORD_NAME="$1"
+OPENTEACH_DATA_DIR="/home/jeremiah/openteach/extracted_data"
+export LEROBOT_TRAJECTORY_DIR="${LEROBOT_TRAJECTORY_DIR:-${OPENTEACH_DATA_DIR}/demonstration_${RECORD_NAME}}"
 DATA_PID=""
 INFERENCE_PID=""
 
 stop_children() {
-    trap - INT
+    # Let both process groups finish saving without interrupting cleanup again.
+    trap '' INT TERM
 
     echo
-    echo "Stopping pi_05_inference.bash..."
-    kill -INT -- "-${INFERENCE_PID}" 2>/dev/null || true
+    if [[ -n "${INFERENCE_PID}" ]]; then
+        echo "Stopping pi_05_inference.bash..."
+        kill -INT -- "-${INFERENCE_PID}" 2>/dev/null || true
+    fi
 
-    echo "Stopping data_collect.py..."
-    kill -INT -- "-${DATA_PID}" 2>/dev/null || true
+    if [[ -n "${DATA_PID}" ]]; then
+        echo "Stopping data_collect.py..."
+        kill -INT -- "-${DATA_PID}" 2>/dev/null || true
+    fi
 
-    wait "${INFERENCE_PID}" 2>/dev/null || true
-    wait "${DATA_PID}" 2>/dev/null || true
-    exit 130
+    if [[ -n "${INFERENCE_PID}" ]]; then
+        wait "${INFERENCE_PID}" 2>/dev/null || true
+    fi
+    if [[ -n "${DATA_PID}" ]]; then
+        wait "${DATA_PID}" 2>/dev/null || true
+    fi
 }
 
-trap stop_children INT
+trap stop_children EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 echo "Starting data_collect.py..."
-bash -c 'exec python "$@"' bash /home/jeremiah/openteach/data_collect.py robot=franka demo_num="${RECORD_NAME}" &
+bash -c 'exec python "$@"' bash /home/jeremiah/openteach/data_collect.py robot=franka demo_num="${RECORD_NAME}" storage_path="${OPENTEACH_DATA_DIR}" &
 DATA_PID=$!
 
 sleep 0.2
@@ -42,7 +54,12 @@ INFERENCE_PID=$!
 echo "Started:"
 echo "  data_collect.py PID: ${DATA_PID}"
 echo "  inference      PID: ${INFERENCE_PID}"
+echo "  trajectory logs: ${LEROBOT_TRAJECTORY_DIR}"
 echo
 echo "Press Ctrl+C to stop pi_05_inference.bash, then data_collect.py."
 
-wait
+# Stop the other process when either inference or data collection ends.
+wait -n "${INFERENCE_PID}" "${DATA_PID}"
+ROLLOUT_STATUS=$?
+echo "A rollout process exited (status ${ROLLOUT_STATUS}); stopping the remaining processes."
+exit "${ROLLOUT_STATUS}"

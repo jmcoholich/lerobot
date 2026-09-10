@@ -56,7 +56,7 @@ class FrankaRobot(Robot):
             use_filter=False,
             arm_resolution_port = None,
             teleoperation_reset_port = None,
-            record='test_lerobot',
+            record=config.record,
             control_mode="absolute_eef_pose_to_delta",
             )
         if DELTA_JOINT_ACTIONS or JOINT_ACTIONS:
@@ -73,6 +73,7 @@ class FrankaRobot(Robot):
             "camera_wrist",
             "camera_front",
         ]
+        self._saved_obs_cmd_history = False
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
@@ -169,7 +170,13 @@ class FrankaRobot(Robot):
         pass
 
     def disconnect(self) -> None:
-        pass
+        if self._saved_obs_cmd_history:
+            return
+
+        print("Saving Franka obs/cmd history...")
+        self.operator.save_obs_cmd_history()
+        self._saved_obs_cmd_history = True
+        print("Franka obs/cmd history saved.")
 
 
     @property

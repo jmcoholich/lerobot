@@ -17,7 +17,11 @@
 import builtins
 import logging
 import math
+import hashlib
+import json
+from importlib.metadata import version
 from collections import deque
+from dataclasses import asdict
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -42,6 +46,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies.pi05.configuration_pi05 import PI05Config
+from lerobot.policies.pi05.trajectory_recorder import TrajectoryRecorder, as_numpy, snapshot_processor
 from lerobot.policies.pretrained import PreTrainedPolicy, T
 from lerobot.utils.constants import (
     ACTION,
@@ -124,7 +129,7 @@ if vlm_io_path.exists() and vlm_io_path.is_dir():
         if file.is_file():
             file.unlink()
 
-MAX_CHUNKS = 6
+MAX_CHUNKS = 16
 INTERVENTIONS = False
 # INTERVENTIONS = "PIVOT"
 # INTERVENTIONS = "primitive"
@@ -1260,6 +1265,11 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
         self.model.to(config.device)
         self.count = 0
+        self._trajectory_recorder = None
+        self._replay_sampling_calls = []
+        self._raw_replay_observation = {}
+        self._rollout_config = None
+        self._checkpoint_file = None
 
         self.reset()
         if INTERVENTIONS:
@@ -1332,6 +1342,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         )
 
         original_state_dict = load_file(resolved_file)
+        model._checkpoint_file = resolved_file
         print("[OK] Loaded state dict from model.safetensors")
 
         # First, fix any key differences # see openpi `model.py, _fix_pytorch_state_dict_keys`
@@ -1521,6 +1532,115 @@ class PI05PolicyTaco(PreTrainedPolicy):
         prompt = "".join(copy.copy(self.primitive_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
         return prompt
 
+    def configure_replay_recording(self, rollout_config):
+        """Snapshot resolved recorder CLI settings before the first inference call."""
+        if self._trajectory_recorder is not None:
+            raise RuntimeError("Rollout configuration must be supplied before trajectory recording starts")
+        self._rollout_config = copy.deepcopy(rollout_config)
+
+    def _ensure_trajectory_recorder(self, preprocessor=None, postprocessor=None):
+        if self._trajectory_recorder is None:
+            artifacts = {
+                "source": {Path(__file__).name: np.frombuffer(Path(__file__).read_bytes(), dtype=np.uint8)},
+            }
+            repo_root = Path(__file__).resolve().parents[4]
+            for relative_path in (
+                "collect_eval.bash", "pi_05_inference.bash", "src/lerobot/scripts/lerobot_record.py",
+                "src/lerobot/robots/franka/franka.py", "src/lerobot/robots/franka/franka_config.py",
+            ):
+                source_path = repo_root / relative_path
+                if source_path.is_file():
+                    artifacts["source"][source_path.name] = np.frombuffer(source_path.read_bytes(), dtype=np.uint8)
+            for name, pipeline in (("preprocessor", preprocessor), ("postprocessor", postprocessor)):
+                if pipeline is not None:
+                    artifacts[name] = snapshot_processor(pipeline)
+            checkpoint_sha256 = None
+            if self._checkpoint_file is not None:
+                digest = hashlib.sha256()
+                with open(self._checkpoint_file, "rb") as checkpoint:
+                    for block in iter(lambda: checkpoint.read(8 * 1024 * 1024), b""):
+                        digest.update(block)
+                checkpoint_sha256 = digest.hexdigest()
+            self._trajectory_recorder = TrajectoryRecorder({
+                "policy_config": asdict(self.config),
+                "rollout_config": self._rollout_config,
+                "launch": {
+                    "argv": list(sys.argv),
+                    "python_executable": sys.executable,
+                    "cwd": os.getcwd(),
+                    "environment": {
+                        key: os.environ[key]
+                        for key in ("LEROBOT_DEMO_NAME", "LEROBOT_TRAJECTORY_DIR", "CUDA_VISIBLE_DEVICES", "PYTHONPATH")
+                        if key in os.environ
+                    },
+                },
+                "taco_settings": {
+                    "max_chunks": MAX_CHUNKS,
+                    "trajectory_perturb_std": TRAJ_STD_PERTURB,
+                    "use_wrist": USE_WRIST,
+                },
+                "checkpoint_file": self._checkpoint_file,
+                "checkpoint_sha256": checkpoint_sha256,
+                "torch_version": torch.__version__,
+                "transformers_version": version("transformers"),
+                "cuda_version": torch.version.cuda,
+                "cuda_device": torch.cuda.get_device_name() if torch.cuda.is_available() else None,
+                "matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
+                "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
+                "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+                "interventions": INTERVENTIONS,
+                "manual_guidance": MANUAL_GUIDANCE,
+                "vis_spreads": VIS_SPREADS,
+            }, artifacts=artifacts)
+
+    def capture_replay_observation(self, observation, preprocessor, postprocessor):
+        """Capture state before normalization, only when a new chunk is needed."""
+        if self._action_queue:
+            return
+        self._ensure_trajectory_recorder(preprocessor, postprocessor)
+        self._raw_replay_observation = {
+            "observation.state": as_numpy(observation["observation.state"]),
+            "task_json": json.dumps(observation.get("task")),
+        }
+
+    def _sample_trajectory_candidates(self, batch):
+        """Generate and record the same 15-to-5 candidate pipeline for every chunk."""
+        self._ensure_trajectory_recorder()
+        self._replay_sampling_calls = []
+        num_trajs = 5
+        original_actions = self.predict_action_chunk(
+            batch,
+            num_samples=num_trajs * 3,
+            guidance_actions=None,
+            guidance_scale=None,
+            consistency_guidance=None,
+        )
+        actions = original_actions.clone()
+        perturbation_noise = torch.zeros_like(actions[:, 1:, :3])
+        if TRAJ_STD_PERTURB > 0.0:
+            # Perturb XYZ only, leaving the first point and other action dimensions intact.
+            perturbation_noise = torch.randn_like(actions[:, 1:, :3])
+            actions[:, 1:, :3] += perturbation_noise * TRAJ_STD_PERTURB
+        idcs = select_representative_trajectories(actions, num_trajectories=num_trajs)
+        self._active_trajectory_index = self._trajectory_recorder.append(
+            chunk_index=self.count,
+            original=original_actions.detach().float().cpu().numpy(),
+            perturbed=actions.detach().float().cpu().numpy(),
+            selected_indices=idcs,
+            observations={
+                key: as_numpy(value)
+                for key, value in batch.items()
+                if isinstance(value, torch.Tensor)
+            },
+            task=batch.get("task"),
+            perturb_std=TRAJ_STD_PERTURB,
+            perturbation_noise=perturbation_noise,
+            sampling_calls=self._replay_sampling_calls,
+            raw_observation=self._raw_replay_observation,
+        )
+        self._replay_sampling_calls = []
+        return original_actions, actions[idcs]
+
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor], postprocessor=None, robot=None) -> Tensor:
         """Select a single action given environment observations."""
@@ -1550,12 +1670,14 @@ class PI05PolicyTaco(PreTrainedPolicy):
             # consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
             guidance_scale = 20.0
             print(f"\nGenerating action chunk number {self.count}")
+            original_actions, candidate_actions = self._sample_trajectory_candidates(batch)
+            execution_source = "original_sample_0"
             if (self.count == 0 or self.count == 1) and INTERVENTIONS and not (MANUAL_GUIDANCE or VIS_SPREADS):  # intervene
                 print(f"Intervention step...")
                 print(f"Intervention mode: {INTERVENTIONS}")
                 if INTERVENTIONS == "PIVOT":
                     print("Running pivot guidance...")
-                    guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False)
+                    guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False, actions=candidate_actions)
                 elif INTERVENTIONS == "primitive":
                     assert not USE_WRIST
                     print("Running primitive guidance...")
@@ -1563,7 +1685,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                 elif INTERVENTIONS == "ensemble":
                     assert not USE_WRIST
                     print("Running ensemble guidance (pivot + primitive + fusion)...")
-                    pivot_guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False)
+                    pivot_guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False, actions=candidate_actions)
                     primitive_guidance_action = self.primitive_guidance(batch, postprocessor, robot, save_imgs=False)
                     guidance_action = self.action_ensemble(pivot_guidance_action, primitive_guidance_action, batch, postprocessor, robot, save_imgs=True)
                 else:
@@ -1575,6 +1697,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     guidance_scale=guidance_scale,
                     consistency_guidance=None,
                     )
+                execution_source = "last_sampling_call"
             elif MANUAL_GUIDANCE:
                 print(f"Manual guidance step...")
                 # Example of manual guidance: guide to move right
@@ -1588,15 +1711,10 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     guidance_scale=guidance_scale,
                     consistency_guidance=None,
                     )
+                execution_source = "last_sampling_call"
             elif VIS_SPREADS:
                 print("Visualization spread step...")
-                actions = self.predict_action_chunk(
-                    batch,
-                    num_samples=10,
-                    guidance_actions=None,
-                    guidance_scale=None,
-                    consistency_guidance=None,
-                    )
+                actions = candidate_actions
                 _, _ = visualize_trajectories_on_camera(
                     batch,
                     actions.cpu().numpy(),
@@ -1607,15 +1725,11 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     save_imgs=True,
                     )
                 actions = actions[0:1]
+                execution_source = "selected_sample_0"
             else:  # no intervention
                 print(f"No intervention ...")
-                actions = self.predict_action_chunk(
-                    batch,
-                    num_samples=1,
-                    guidance_actions=None,
-                    guidance_scale=guidance_scale,
-                    consistency_guidance=None,
-                    )
+                # Preserve unguided execution of an unperturbed policy sample.
+                actions = original_actions[0:1]
             # # just to vis actions distribution
             # actions = self.predict_action_chunk(
             #     batch,
@@ -1634,6 +1748,13 @@ class PI05PolicyTaco(PreTrainedPolicy):
             #     save_imgs=True,
             #     )
             # actions = actions[0:1]
+            self._trajectory_recorder.record_execution(
+                self._active_trajectory_index,
+                sampling_calls=self._replay_sampling_calls,
+                actions=actions,
+                source=execution_source,
+            )
+            self._replay_sampling_calls = []
             self.count += 1
             self._action_queue.extend(actions.transpose(0, 1))
             # sys.exit(0)
@@ -1648,6 +1769,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         guidance_scale: float = 1.0,
         gripper_guidance: bool = True,
         consistency_guidance: torch.FloatTensor = None,
+        noise: Tensor | None = None,
     ) -> Tensor:
         """Predict a chunk of actions given environment observations."""
         self.eval()
@@ -1658,6 +1780,11 @@ class PI05PolicyTaco(PreTrainedPolicy):
         images, img_masks = self._preprocess_images(batch)
         tokens, masks = batch[f"{OBS_LANGUAGE_TOKENS}"], batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
 
+        if noise is None:
+            noise = self.model.sample_noise(
+                (num_samples, self.config.chunk_size, self.config.max_action_dim), tokens.device
+            )
+
         # import ipdb;ipdb.set_trace()
         # Sample actions using the model (no separate state needed for PI05)
         actions = self.model.sample_actions(
@@ -1665,12 +1792,34 @@ class PI05PolicyTaco(PreTrainedPolicy):
             img_masks,
             tokens,
             masks,
+            noise=noise,
             num_samples=num_samples,
             guidance_actions=guidance_actions,
             guidance_scale=guidance_scale,
             gripper_guidance=gripper_guidance,
             consistency_guidance=consistency_guidance,
             )
+        if self._trajectory_recorder is not None:
+            self._replay_sampling_calls.append({
+                "settings_json": json.dumps({
+                    "num_samples": num_samples,
+                    "num_steps": self.config.num_inference_steps,
+                    "guidance_scale": guidance_scale,
+                    "gripper_guidance": gripper_guidance,
+                    "autocast_enabled": torch.is_autocast_enabled(),
+                    "autocast_dtype": str(torch.get_autocast_dtype("cuda")),
+                }),
+                "inputs": {
+                    "images": {str(i): as_numpy(image) for i, image in enumerate(images)},
+                    "image_masks": {str(i): as_numpy(mask) for i, mask in enumerate(img_masks)},
+                    "tokens": as_numpy(tokens),
+                    "masks": as_numpy(masks),
+                    "noise": as_numpy(noise),
+                    **({"guidance_actions": as_numpy(guidance_actions)} if guidance_actions is not None else {}),
+                    **({"consistency_guidance": as_numpy(consistency_guidance)} if consistency_guidance is not None else {}),
+                },
+                "full_output": as_numpy(actions),
+            })
         # print("Normalized actions:", actions.cpu().numpy(), file=sys.stderr)
         # ipdb.set_trace()
         # Unpad actions to actual action dimension
@@ -1816,21 +1965,10 @@ class PI05PolicyTaco(PreTrainedPolicy):
         guidance_action = primitive_actions[chosen_idx: chosen_idx + 1]
         return guidance_action.to(batch['observation.state'].device)
 
-    def pivot(self, batch, postprocessor, robot, save_imgs=False):
-        num_trajs = 5
-        actions = self.predict_action_chunk(
-            batch,
-            num_samples=num_trajs * 3,
-            guidance_actions=None,
-            guidance_scale=None,
-            consistency_guidance=None,
-            )
-        if TRAJ_STD_PERTURB > 0.0:
-            # Apply perturbation only to trajectory points, not the origin (first point)
-            perturbation = torch.randn_like(actions[:, 1:, :3]) * TRAJ_STD_PERTURB
-            actions[:, 1:, :3] += perturbation
-        idcs = select_representative_trajectories(actions, num_trajectories=num_trajs)
-        actions = actions[idcs]
+    def pivot(self, batch, postprocessor, robot, save_imgs=False, actions=None):
+        if actions is None:
+            _, actions = self._sample_trajectory_candidates(batch)
+        num_trajs = actions.shape[0]
         front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
             batch,
             actions.cpu().numpy(),
@@ -1868,6 +2006,7 @@ def visualize_trajectories_on_camera(
     name="test",
     save_imgs=False,
     save_dir=None,
+    trajectory_stride=10,
     ):
     padding = 0
     if actions_are_normalized:
@@ -1890,7 +2029,7 @@ def visualize_trajectories_on_camera(
             extrinsic, intrinsic = apriltag2cam(padding=padding)
             line_thickness = 1
             draw_arrow_head = False
-            downsample = 10
+            downsample = trajectory_stride
         else: # wrist cam
             extrinsic, intrinsic = get_wrist_cam_mats(robot, padding=padding)
             line_thickness = 2
@@ -1904,7 +2043,7 @@ def visualize_trajectories_on_camera(
         legend_y = 30
         x_offset = 140
         for i, color in enumerate(TRAJ_COLORS[:action.shape[0]]):
-            cv2.circle(image_np, (30 + x_offset, legend_y), 6, color, -1)
+            cv2.line(image_np, (24 + x_offset, legend_y), (36 + x_offset, legend_y), color, 2)
             cv2.putText(image_np, TRAJ_COLOR_NAMES[i], (45 + x_offset, legend_y + 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
             legend_y += 25
@@ -1932,15 +2071,6 @@ def draw_lines(points_2d, img, valid_mask, traj_color, first_traj, line_thicknes
 
         # Check if point is within image bounds
         if 0 <= x < img.shape[1] and 0 <= y < img.shape[0]:
-            # if j == 0 and i == 0:  # Only draw current position once
-            if j == 0 and first_traj:
-                # Current position - larger circle with white outline
-                cv2.circle(img, (x, y), 4 * line_thickness, (0, 255, 0), -1)
-                cv2.circle(img, (x, y), 5 * line_thickness, (255, 255, 255), 2)
-            elif j > 0:
-                # Future positions
-                cv2.circle(img, (x, y), 2 * line_thickness, traj_color, -1)
-
             # Track valid points for arrow head
             second_last_valid_idx = last_valid_idx
             last_valid_idx = j

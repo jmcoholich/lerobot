@@ -1,11 +1,15 @@
 rm -rf /home/jeremiah/.cache/huggingface/lerobot/dummy
 
+RECORD_NAME="${1:-last_recording}"
+export LEROBOT_DEMO_NAME="${RECORD_NAME}"
+
 export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH}"
 
 python src/lerobot/scripts/lerobot_record.py \
   --robot.type=franka \
   --robot.id=franka \
   --robot.port=dummy \
+  --robot.record="${RECORD_NAME}" \
   --dataset.push_to_hub=false \
   --dataset.root='/home/jeremiah/.cache/huggingface/lerobot/dummy' \
   --dataset.repo_id=dummy/eval_dummy \
@@ -13,6 +17,7 @@ python src/lerobot/scripts/lerobot_record.py \
   --dataset.episode_time_s=30000 \
   --dataset.num_episodes=1 \
   --policy.dtype=bfloat16 \
+  --policy.n_action_steps=50 \
   --policy.path=/home/jeremiah/lerobot/outputs/both_in_bin_interleaved/checkpoints/003000/pretrained_model
   # --policy.path=/home/jeremiah/lerobot/outputs/both_in_bin_interleaved/checkpoints/003000/pretrained_model
   # --policy.type=pi05 \
