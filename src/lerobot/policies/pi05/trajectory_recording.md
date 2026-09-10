@@ -37,10 +37,11 @@ candidate noise has shape `[15, 100, 32]`; candidate trajectories have shape
 
 Root `metadata_json` includes the effective policy config, checkpoint path and
 SHA-256, Torch/Transformers/CUDA versions, and backend settings. New recordings
-also include `rollout_config`: the full resolved `lerobot_record.py` configuration,
-including robot/teleop settings, the original task prompt in
+also include `rollout_config`: the rollout's robot and policy settings, the original task prompt in
 `rollout_config.dataset.single_task`, FPS, episode limits, and dataset settings.
 `policy_config.n_action_steps` holds the execution horizon.
+The inference-only client retains `rollout_config.dataset` for task/FPS/time
+settings but does not write a LeRobot dataset.
 `launch` records the Python argv, interpreter, working directory, and selected
 inference environment variables. `taco_settings` records the chunk limit,
 perturbation scale, and wrist-camera guidance setting; intervention flags are
@@ -51,6 +52,8 @@ and both launch scripts, plus the actual preprocessor and
 postprocessor JSON/safetensors files, including normalization statistics.
 The model weights remain in the referenced checkpoint and must be retained.
 Hashing the checkpoint adds a one-time read before the first sampling call.
+The policy server caches that hash with the loaded model across rollouts;
+starting a new recording does not reread the weights.
 
 For quick inspection:
 

@@ -1,21 +1,19 @@
-rm -rf /home/jeremiah/.cache/huggingface/lerobot/dummy
-
 RECORD_NAME="${1:-last_recording}"
 export LEROBOT_DEMO_NAME="${RECORD_NAME}"
 
 export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH}"
 
-python src/lerobot/scripts/lerobot_record.py \
+python src/lerobot/scripts/pi05_inference.py \
+  --policy_server="${LEROBOT_POLICY_SERVER:-/tmp/lerobot-pi05-${UID}.sock}" \
   --robot.type=franka \
   --robot.id=franka \
   --robot.port=dummy \
   --robot.record="${RECORD_NAME}" \
-  --dataset.push_to_hub=false \
-  --dataset.root='/home/jeremiah/.cache/huggingface/lerobot/dummy' \
-  --dataset.repo_id=dummy/eval_dummy \
-  --dataset.single_task="place both blocks in the bin" \
-  --dataset.episode_time_s=30000 \
-  --dataset.num_episodes=1 \
+  --task="place both blocks in the bin" \
+  --duration=30000 \
+  --interventions=none \
+  --manual_guidance=false \
+  --vis_spreads=false \
   --policy.dtype=bfloat16 \
   --policy.n_action_steps=50 \
   --policy.path=/home/jeremiah/lerobot/outputs/both_in_bin_interleaved/checkpoints/003000/pretrained_model

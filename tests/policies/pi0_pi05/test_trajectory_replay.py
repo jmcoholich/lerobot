@@ -8,10 +8,12 @@ import hashlib
 from importlib.metadata import version
 import importlib.util
 import json
+import logging
 import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -66,21 +68,24 @@ class TestTrajectoryReplay(unittest.TestCase):
             TRAJ_STD_PERTURB=0.01, MAX_CHUNKS=8, USE_WRIST=False,
             OBS_LANGUAGE_TOKENS="observation.language.tokens",
             OBS_LANGUAGE_ATTENTION_MASK="observation.language.attention_mask", ACTION="action",
-            copy=copy, asdict=asdict, hashlib=hashlib, version=version, os=os, Path=Path,
+            copy=copy, asdict=asdict, hashlib=hashlib, logging=logging, time=time, version=version, os=os, Path=Path,
             __file__=str(POLICY_DIR / "modelling_pi05_taco.py"),
             TrajectoryRecorder=recorder_module.TrajectoryRecorder,
             snapshot_processor=recorder_module.snapshot_processor,
+            VLMClient=Mock(),
         )
         # Avoid model/hardware imports, but run the actual policy methods being changed.
         tree = ast.parse((POLICY_DIR / "modelling_pi05_taco.py").read_text())
         cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "PI05PolicyTaco")
-        names = ("configure_replay_recording", "_ensure_trajectory_recorder", "capture_replay_observation",
+        names = ("configure_interventions", "reset_rollout", "configure_replay_recording", "_ensure_trajectory_recorder", "capture_replay_observation",
                  "_sample_trajectory_candidates", "predict_action_chunk", "select_action")
         nodes = [node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name in names]
         nodes += [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "select_representative_trajectories"]
         exec(compile(ast.Module(body=nodes, type_ignores=[]), "policy_methods", "exec"), self.namespace)
         stub_cls = type("Policy", (), {name: self.namespace[name] for name in names})
         self.policy = stub_cls()
+        self.policy.vlm_client = None
+        self.policy.configure_interventions()
         self.policy.config = SimpleNamespace(chunk_size=100, max_action_dim=32, n_action_steps=50,
                                              num_inference_steps=10, output_features={"action": SimpleNamespace(shape=(8,))}, device="cpu")
         self.policy.model = Sampler()
@@ -89,6 +94,7 @@ class TestTrajectoryReplay(unittest.TestCase):
         self.policy._trajectory_recorder = recorder_module.TrajectoryRecorder({}, self.directory.name, demo_name="replay")
         self.policy._action_queue = deque(maxlen=50)
         self.policy.count = 0
+        self.policy._checkpoint_sha256 = None
         self.policy._replay_sampling_calls = []
         self.batch = {
             "observation.state": torch.arange(8, dtype=torch.float32)[None] / 10,
@@ -104,7 +110,7 @@ class TestTrajectoryReplay(unittest.TestCase):
 
     def run_replay(self, guided=False):
         if guided:
-            self.namespace["INTERVENTIONS"] = "PIVOT"
+            self.policy.configure_interventions(interventions="PIVOT")
             self.policy.pivot = lambda *args, actions, **kwargs: actions[:1]
         raw = {"observation.state": torch.arange(8, dtype=torch.float32)[None], "task": ["place blocks"]}
         self.policy.capture_replay_observation(raw, Mock(), Mock())
@@ -137,6 +143,72 @@ class TestTrajectoryReplay(unittest.TestCase):
         self.policy.predict_action_chunk(self.batch, num_samples=15, noise=noise)
         np.testing.assert_array_equal(self.policy._replay_sampling_calls[0]["inputs"]["noise"], noise.numpy())
 
+    def test_intervention_changes_keep_model_and_initialize_vlm_once(self):
+        model = self.policy.model
+        self.policy.reset = Mock()
+        modes = [
+            ("PIVOT", False, False), ("primitive", False, False), ("ensemble", False, False),
+            ("none", True, False), ("none", False, True), ("none", False, False),
+        ]
+        for strategy, manual, spreads in modes:
+            self.policy.reset_rollout()
+            settings = {"interventions": strategy, "manual_guidance": manual, "vis_spreads": spreads}
+            self.policy.configure_replay_recording({"intervention_settings": settings})
+            self.assertIs(self.policy.model, model)
+            self.assertEqual(self.policy.interventions, False if strategy == "none" else strategy)
+            self.assertEqual(self.policy.manual_guidance, manual)
+            self.assertEqual(self.policy.vis_spreads, spreads)
+            self.assertEqual(self.policy._rollout_config["intervention_settings"], settings)
+        self.namespace["VLMClient"].assert_called_once_with(server_url="http://127.0.0.1:35959")
+
+    def test_conflicting_intervention_settings_fail_before_vlm_initialization(self):
+        for settings in (
+            {"interventions": "invalid"},
+            {"interventions": "PIVOT", "manual_guidance": True},
+            {"interventions": "primitive", "vis_spreads": True},
+            {"manual_guidance": True, "vis_spreads": True},
+        ):
+            with self.subTest(settings=settings), self.assertRaises(ValueError):
+                self.policy.configure_interventions(**settings)
+        self.namespace["VLMClient"].assert_not_called()
+        self.assertFalse(self.policy.interventions)
+
+    def test_reset_rollout_clears_recording_state(self):
+        model = self.policy.model
+        self.policy.count = 8
+        self.policy.reset = Mock()
+        self.policy.reset_rollout()
+        self.policy.reset.assert_called_once()
+        self.assertIs(self.policy.model, model)
+        self.assertEqual(self.policy.count, 0)
+        self.assertIsNone(self.policy._trajectory_recorder)
+        self.assertEqual(self.policy._replay_sampling_calls, [])
+        self.assertEqual(self.policy._raw_replay_observation, {})
+        self.policy.configure_replay_recording({"robot": {"record": "next"}})
+        self.assertEqual(self.policy._rollout_config["robot"]["record"], "next")
+
+    def test_checkpoint_hash_is_reused_across_rollout_recordings(self):
+        checkpoint = Path(self.directory.name) / "model.safetensors"
+        checkpoint.write_bytes(b"loaded model weights")
+        expected_hash = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+        self.policy._checkpoint_file = str(checkpoint)
+        self.policy.config = make_dataclass("Config", [("n_action_steps", int)])(50)
+        self.policy.reset = Mock()
+        del self.policy._ensure_trajectory_recorder
+        with patch("builtins.open", wraps=open) as read_file:
+            for demo in ("first", "second"):
+                self.policy.reset_rollout()
+                self.policy.configure_replay_recording({"robot": {"record": demo}})
+                with patch.dict(os.environ, {"LEROBOT_TRAJECTORY_DIR": self.directory.name,
+                                            "LEROBOT_DEMO_NAME": demo}):
+                    self.policy._ensure_trajectory_recorder()
+                with h5py.File(self.policy._trajectory_recorder.path, "r") as file:
+                    metadata = json.loads(file.attrs["metadata_json"])
+                    self.assertEqual(metadata["checkpoint_sha256"], expected_hash)
+                    self.assertEqual(metadata["rollout_config"]["robot"]["record"], demo)
+            checkpoint_reads = [call for call in read_file.call_args_list if call.args[0] == str(checkpoint)]
+            self.assertEqual(len(checkpoint_reads), 1)
+
     def test_full_rollout_configuration_and_launch_metadata_are_saved(self):
         self.policy._trajectory_recorder = None
         self.policy._checkpoint_file = None
@@ -146,6 +218,7 @@ class TestTrajectoryReplay(unittest.TestCase):
             "dataset": {"single_task": "place both blocks in the bin", "fps": 30, "num_episodes": 1},
             "robot": {"record": "metadata", "port": "dummy"},
             "policy": {"n_action_steps": 50},
+            "intervention_settings": {"interventions": "none", "vis_spreads": True},
         }
         self.policy.configure_replay_recording(config)
         config["dataset"]["single_task"] = "changed after capture"
@@ -160,6 +233,9 @@ class TestTrajectoryReplay(unittest.TestCase):
             self.assertEqual(metadata["launch"]["argv"], argv)
             self.assertEqual(metadata["launch"]["python_executable"], sys.executable)
             self.assertEqual(metadata["taco_settings"]["max_chunks"], 8)
+            self.assertFalse(metadata["interventions"])
+            self.assertFalse(metadata["manual_guidance"])
+            self.assertTrue(metadata["vis_spreads"])
             for filename in ("collect_eval.bash", "pi_05_inference.bash", "lerobot_record.py", "franka.py"):
                 self.assertIn(filename, file["artifacts/source"])
         with self.assertRaises(RuntimeError):

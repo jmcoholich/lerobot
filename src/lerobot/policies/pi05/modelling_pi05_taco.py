@@ -16,6 +16,7 @@
 
 import builtins
 import logging
+import time
 import math
 import hashlib
 import json
@@ -130,6 +131,7 @@ if vlm_io_path.exists() and vlm_io_path.is_dir():
             file.unlink()
 
 MAX_CHUNKS = 16
+# Defaults for local inference; the server applies per-rollout settings from the launcher.
 INTERVENTIONS = False
 # INTERVENTIONS = "PIVOT"
 # INTERVENTIONS = "primitive"
@@ -138,9 +140,6 @@ TRAJ_STD_PERTURB = 0.01  # 0.01
 USE_WRIST = False
 MANUAL_GUIDANCE = False
 VIS_SPREADS = False # no guidance, just generate 5 trajectories and visualize them
-if VIS_SPREADS:
-    assert not MANUAL_GUIDANCE
-    assert not INTERVENTIONS
 import random
 
 
@@ -1270,10 +1269,11 @@ class PI05PolicyTaco(PreTrainedPolicy):
         self._raw_replay_observation = {}
         self._rollout_config = None
         self._checkpoint_file = None
+        self._checkpoint_sha256 = None
 
         self.reset()
-        if INTERVENTIONS:
-            self.vlm_client = VLMClient(server_url="http://127.0.0.1:35959")
+        self.vlm_client = None
+        self.configure_interventions()
         if USE_WRIST:
             prompt_template_path = "src/lerobot/policies/pi05/vlm_prompt_template_wrist.txt"
         else:
@@ -1532,20 +1532,51 @@ class PI05PolicyTaco(PreTrainedPolicy):
         prompt = "".join(copy.copy(self.primitive_prompt_template)).replace("<TASK_DESCRIPTION/>", task)
         return prompt
 
+    def configure_interventions(
+        self, interventions=INTERVENTIONS, manual_guidance=MANUAL_GUIDANCE, vis_spreads=VIS_SPREADS,
+    ):
+        """Apply rollout behavior without changing the model or its compiled functions."""
+        if interventions == "none":
+            interventions = False
+        if interventions not in (False, "PIVOT", "primitive", "ensemble"):
+            raise ValueError(f"Unknown intervention strategy: {interventions}")
+        if sum((bool(interventions), manual_guidance, vis_spreads)) > 1:
+            raise ValueError("Choose only one of interventions, manual guidance, or spread visualization")
+        if USE_WRIST and interventions in ("primitive", "ensemble"):
+            raise ValueError("Primitive and ensemble interventions require USE_WRIST=False")
+        if interventions and self.vlm_client is None:
+            self.vlm_client = VLMClient(server_url="http://127.0.0.1:35959")
+        self.interventions = interventions
+        self.manual_guidance = manual_guidance
+        self.vis_spreads = vis_spreads
+        logging.info("Rollout interventions=%s, manual_guidance=%s, vis_spreads=%s",
+                     interventions, manual_guidance, vis_spreads)
+
+    def reset_rollout(self):
+        """Start a fresh server rollout while retaining model weights."""
+        self.reset()
+        self.count = 0
+        self._trajectory_recorder = None
+        self._replay_sampling_calls = []
+        self._raw_replay_observation = {}
+
     def configure_replay_recording(self, rollout_config):
         """Snapshot resolved recorder CLI settings before the first inference call."""
         if self._trajectory_recorder is not None:
             raise RuntimeError("Rollout configuration must be supplied before trajectory recording starts")
+        self.configure_interventions(**rollout_config.get("intervention_settings", {}))
         self._rollout_config = copy.deepcopy(rollout_config)
 
     def _ensure_trajectory_recorder(self, preprocessor=None, postprocessor=None):
         if self._trajectory_recorder is None:
+            metadata_start = time.perf_counter()
             artifacts = {
                 "source": {Path(__file__).name: np.frombuffer(Path(__file__).read_bytes(), dtype=np.uint8)},
             }
             repo_root = Path(__file__).resolve().parents[4]
             for relative_path in (
                 "collect_eval.bash", "pi_05_inference.bash", "src/lerobot/scripts/lerobot_record.py",
+                "src/lerobot/scripts/pi05_inference.py", "src/lerobot/scripts/pi05_policy_server.py",
                 "src/lerobot/robots/franka/franka.py", "src/lerobot/robots/franka/franka_config.py",
             ):
                 source_path = repo_root / relative_path
@@ -1554,13 +1585,16 @@ class PI05PolicyTaco(PreTrainedPolicy):
             for name, pipeline in (("preprocessor", preprocessor), ("postprocessor", postprocessor)):
                 if pipeline is not None:
                     artifacts[name] = snapshot_processor(pipeline)
-            checkpoint_sha256 = None
-            if self._checkpoint_file is not None:
+            checkpoint_sha256 = self._checkpoint_sha256
+            if self._checkpoint_file is not None and checkpoint_sha256 is None:
+                logging.info("Hashing checkpoint for trajectory metadata (once per loaded policy)")
                 digest = hashlib.sha256()
                 with open(self._checkpoint_file, "rb") as checkpoint:
                     for block in iter(lambda: checkpoint.read(8 * 1024 * 1024), b""):
                         digest.update(block)
                 checkpoint_sha256 = digest.hexdigest()
+                self._checkpoint_sha256 = checkpoint_sha256
+                logging.info("Checkpoint hash cached for subsequent rollouts")
             self._trajectory_recorder = TrajectoryRecorder({
                 "policy_config": asdict(self.config),
                 "rollout_config": self._rollout_config,
@@ -1588,10 +1622,11 @@ class PI05PolicyTaco(PreTrainedPolicy):
                 "matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
                 "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
                 "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
-                "interventions": INTERVENTIONS,
-                "manual_guidance": MANUAL_GUIDANCE,
-                "vis_spreads": VIS_SPREADS,
+                "interventions": self.interventions,
+                "manual_guidance": self.manual_guidance,
+                "vis_spreads": self.vis_spreads,
             }, artifacts=artifacts)
+            logging.info("Startup: trajectory metadata %.2fs", time.perf_counter() - metadata_start)
 
     def capture_replay_observation(self, observation, preprocessor, postprocessor):
         """Capture state before normalization, only when a new chunk is needed."""
@@ -1608,6 +1643,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         self._ensure_trajectory_recorder()
         self._replay_sampling_calls = []
         num_trajs = 5
+        sampling_start = time.perf_counter()
         original_actions = self.predict_action_chunk(
             batch,
             num_samples=num_trajs * 3,
@@ -1615,6 +1651,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             guidance_scale=None,
             consistency_guidance=None,
         )
+        sampling_done = time.perf_counter()
         actions = original_actions.clone()
         perturbation_noise = torch.zeros_like(actions[:, 1:, :3])
         if TRAJ_STD_PERTURB > 0.0:
@@ -1622,6 +1659,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             perturbation_noise = torch.randn_like(actions[:, 1:, :3])
             actions[:, 1:, :3] += perturbation_noise * TRAJ_STD_PERTURB
         idcs = select_representative_trajectories(actions, num_trajectories=num_trajs)
+        selection_done = time.perf_counter()
         self._active_trajectory_index = self._trajectory_recorder.append(
             chunk_index=self.count,
             original=original_actions.detach().float().cpu().numpy(),
@@ -1639,6 +1677,13 @@ class PI05PolicyTaco(PreTrainedPolicy):
             raw_observation=self._raw_replay_observation,
         )
         self._replay_sampling_calls = []
+        if self.count == 0:
+            logging.info(
+                "First chunk: 15-candidate sampling %.2fs, selection %.2fs, trajectory write %.2fs",
+                sampling_done - sampling_start,
+                selection_done - sampling_done,
+                time.perf_counter() - selection_done,
+            )
         return original_actions, actions[idcs]
 
     @torch.no_grad()
@@ -1664,7 +1709,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         # guidance_action = None
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
-            if self.count == MAX_CHUNKS and not MANUAL_GUIDANCE:
+            if self.count == MAX_CHUNKS and not self.manual_guidance:
                 sys.exit(0)
             intervention_period = 1
             # consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
@@ -1672,17 +1717,17 @@ class PI05PolicyTaco(PreTrainedPolicy):
             print(f"\nGenerating action chunk number {self.count}")
             original_actions, candidate_actions = self._sample_trajectory_candidates(batch)
             execution_source = "original_sample_0"
-            if (self.count == 0 or self.count == 1) and INTERVENTIONS and not (MANUAL_GUIDANCE or VIS_SPREADS):  # intervene
+            if (self.count == 0 or self.count == 1) and self.interventions and not (self.manual_guidance or self.vis_spreads):  # intervene
                 print(f"Intervention step...")
-                print(f"Intervention mode: {INTERVENTIONS}")
-                if INTERVENTIONS == "PIVOT":
+                print(f"Intervention mode: {self.interventions}")
+                if self.interventions == "PIVOT":
                     print("Running pivot guidance...")
                     guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False, actions=candidate_actions)
-                elif INTERVENTIONS == "primitive":
+                elif self.interventions == "primitive":
                     assert not USE_WRIST
                     print("Running primitive guidance...")
                     guidance_action = self.primitive_guidance(batch, postprocessor, robot, save_imgs=False)
-                elif INTERVENTIONS == "ensemble":
+                elif self.interventions == "ensemble":
                     assert not USE_WRIST
                     print("Running ensemble guidance (pivot + primitive + fusion)...")
                     pivot_guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False, actions=candidate_actions)
@@ -1698,7 +1743,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     consistency_guidance=None,
                     )
                 execution_source = "last_sampling_call"
-            elif MANUAL_GUIDANCE:
+            elif self.manual_guidance:
                 print(f"Manual guidance step...")
                 # Example of manual guidance: guide to move right
                 guidance_action = None
@@ -1712,7 +1757,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     consistency_guidance=None,
                     )
                 execution_source = "last_sampling_call"
-            elif VIS_SPREADS:
+            elif self.vis_spreads:
                 print("Visualization spread step...")
                 actions = candidate_actions
                 _, _ = visualize_trajectories_on_camera(

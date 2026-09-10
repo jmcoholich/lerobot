@@ -1,6 +1,7 @@
 """Validate launcher arguments without deleting the cache or starting inference."""
 
 from pathlib import Path
+import os
 import subprocess
 import unittest
 
@@ -19,8 +20,16 @@ class TestPi05InferenceArgs(unittest.TestCase):
                         "test_inference", str(SCRIPT), *args,
                     ],
                     check=True, capture_output=True, text=True,
+                    env=os.environ | {"LEROBOT_POLICY_SERVER": "/tmp/test-pi05.sock"},
                 )
                 self.assertIn(f"--robot.record={expected}", result.stdout.splitlines())
+                self.assertIn("--policy_server=/tmp/test-pi05.sock", result.stdout.splitlines())
+                self.assertIn("src/lerobot/scripts/pi05_inference.py", result.stdout.splitlines())
+                self.assertIn("--task=place both blocks in the bin", result.stdout.splitlines())
+                self.assertIn("--interventions=none", result.stdout.splitlines())
+                self.assertIn("--manual_guidance=false", result.stdout.splitlines())
+                self.assertIn("--vis_spreads=false", result.stdout.splitlines())
+                self.assertFalse(any(arg.startswith("--dataset.") for arg in result.stdout.splitlines()))
 
 
 if __name__ == "__main__":
