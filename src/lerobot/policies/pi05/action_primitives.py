@@ -21,7 +21,7 @@ IN_PLACE = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, GRIPPER_ACTION)
 
 LABEL2ACTION = {
     "up": BACKWARD,
-    "down": FORWARD,
+    # "down": FORWARD,  # Disabled: can drive the robot into the table.
     "right": RIGHT,
     "left": LEFT,
     "backward": UP,

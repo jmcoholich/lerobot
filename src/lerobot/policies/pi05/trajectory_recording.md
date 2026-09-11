@@ -197,12 +197,12 @@ with adaptive gamma falling back to 1. The requested setting is recorded in
 ## Intervention trigger and recording
 
 Automatic PIVOT, primitive, and ensemble guidance runs when
-`MMD² + 5 * diversity > 1.2082`, replacing the first-two-chunks schedule.
+`MMD² + 5 * diversity > 1.293`, replacing the first-two-chunks schedule.
 An undefined MMD (first chunk, reset, or no overlap) contributes zero to this
 score; the saved MMD itself remains NaN. The first chunk is not forced to
 intervene. Both metrics exclude gripper. These constants were calibrated on
 20 rollouts with 50-step execution and produced a pooled intervention rate of
-25.08%; changing the horizon or metric gamma settings requires recalibration.
+14.98%; changing the horizon or metric gamma settings requires recalibration.
 
 The recorder uses the explicit execution horizon (`n_action_steps`) to align
 overlaps, even when recorded candidates retain the full prediction horizon.

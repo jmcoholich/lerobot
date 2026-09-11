@@ -1996,7 +1996,11 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
     def primitive_guidance(self, batch, postprocessor, robot, save_imgs=False):
         """Prompt the VLM to select from pre-defined primitives"""
-        primitive_labels = ["left", "right", "up", "down", "forward", "backward", "rotate_cw", "rotate_ccw"]
+        primitive_labels = [
+            "left", "right", "up",
+            # "down",  # Disabled: can drive the robot into the table.
+            "forward", "backward", "rotate_cw", "rotate_ccw",
+        ]
         primitive_actions = torch.cat(
             [
                 get_guidance_action_from_text(
@@ -2033,9 +2037,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             len(primitive_labels),
         )
         chosen_label = str(chosen_label).strip().lower()
-        if chosen_label == "none":
-            chosen_idx = 0
-        elif chosen_label in primitive_labels:
+        if chosen_label in primitive_labels:
             chosen_idx = primitive_labels.index(chosen_label)
         else:
             print(f"Unknown primitive '{chosen_label}', defaulting to '{primitive_labels[0]}'")

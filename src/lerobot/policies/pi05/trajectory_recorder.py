@@ -14,7 +14,7 @@ import tempfile
 import numpy as np
 
 INTERVENTION_DIVERSITY_WEIGHT = 5.0
-INTERVENTION_THRESHOLD = 1.2082
+INTERVENTION_THRESHOLD = 1.293
 
 
 def _rbf_kernel(*samples, gamma):

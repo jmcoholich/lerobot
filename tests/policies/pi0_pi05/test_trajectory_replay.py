@@ -173,7 +173,7 @@ class TestTrajectoryReplay(unittest.TestCase):
                     self.policy.count = 0
                     self.policy.configure_interventions(interventions=strategy, vlm_server_url="http://test")
                     self.policy.vlm_client.select_trajectories = lambda image, prompt, count: (
-                        "up" if count == 8 else "blue", "reasoning")
+                        "up" if count == 7 else "blue", "reasoning")
                     recorder = recorder_module.TrajectoryRecorder({}, self.directory.name, demo_name="full_guidance")
                     self.policy._trajectory_recorder = recorder
                     render.reset_mock()
@@ -191,6 +191,7 @@ class TestTrajectoryReplay(unittest.TestCase):
                         self.assertTrue(chunk["intervention/occurred"][()])
                     for call in render.call_args_list:
                         self.assertEqual(call.args[1].shape[1], 100)
+                    self.assertNotIn("down", [call.args[0] for call in self.namespace["get_guidance_action_from_text"].call_args_list])
                     replayed = replay_module.replay_trajectory_chunk(self.policy, recorder.path)
                     torch.testing.assert_close(replayed, executed, rtol=0, atol=0)
 

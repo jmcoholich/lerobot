@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
-    echo "Usage: $0 <record_name> [none|PIVOT|primitive|ensemble|eve]"
+    echo "Usage: $0 <record_name> [none|base|PIVOT|pivot|primitive|ensemble|eve]"
     echo "Example: $0 test_eve_7 eve"
     exit 1
 fi

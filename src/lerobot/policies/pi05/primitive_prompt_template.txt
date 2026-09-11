@@ -8,7 +8,6 @@ The task is to: <TASK_DESCRIPTION/>
 - "Left": translate the gripper to the left
 - "Right": translate the gripper to the right
 - "Up": translate the gripper vertically upwards
-- "Down": translate the gripper vertically downwards
 - "Forward": move the gripper forward towards the camera
 - "Backward": move the gripper backward away from the camera
 - "Rotate CW": rotate the gripper clockwise about the vertical z-axis
@@ -25,7 +24,7 @@ You must conclude your response with a single, well-formed JSON object and nothi
 The JSON object must contain two keys: "reasoning" and "chosen_trajectory".
 
     "reasoning": Explain why the chosen primitive is best for completing the task.
-    "chosen_trajectory": A string containing the name of the best primitive. If no primitive helps, choose "none".
+    "chosen_trajectory": A string containing exactly one primitive from the Primitive List. You must select a listed primitive.
 
 Example of a perfect response format:
 {

@@ -1,8 +1,12 @@
-# Usage: bash pi_05_inference.bash [record_name] [none|PIVOT|primitive|ensemble|eve]
+# Usage: bash pi_05_inference.bash [record_name] [none|base|PIVOT|pivot|primitive|ensemble|eve]
 RECORD_NAME="${1:-last_recording}"
 INTERVENTIONS="${2:-none}"
 if [[ "${INTERVENTIONS}" == "eve" ]]; then
   INTERVENTIONS="ensemble"
+elif [[ "${INTERVENTIONS}" == "base" ]]; then
+  INTERVENTIONS="none"
+elif [[ "${INTERVENTIONS}" == "pivot" ]]; then
+  INTERVENTIONS="PIVOT"
 fi
 export LEROBOT_DEMO_NAME="${RECORD_NAME}"
 
@@ -25,7 +29,7 @@ python src/lerobot/scripts/pi05_inference.py \
   --manual_guidance=false \
   --vis_spreads=false \
   --policy.dtype=bfloat16 \
-  --policy.n_action_steps=50 \
+  --policy.n_action_steps=75 \
   --policy.mmd_gamma="${LEROBOT_MMD_GAMMA:-median}" \
   --policy.diversity_gamma="${LEROBOT_DIVERSITY_GAMMA:-0.06302211495246096}" \
   --policy.path=/home/jeremiah/lerobot/outputs/both_in_bin_interleaved/checkpoints/003000/pretrained_model
