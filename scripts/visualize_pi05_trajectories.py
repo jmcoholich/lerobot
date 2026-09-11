@@ -5,6 +5,7 @@ Run in the inference environment:
 """
 
 import argparse
+import glob
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
@@ -24,7 +25,7 @@ from safetensors.numpy import load as load_safetensors
 FRONT_IMAGE = "observations/observation.images.camera_front"
 COLUMNS = 6
 GAP = 8
-LABEL_HEIGHT = 28
+LABEL_HEIGHT = 72
 
 
 @contextmanager
@@ -89,17 +90,35 @@ def combine_tiles(tiles):
     """Lay out equally-sized BGR camera tiles, six per row, without scaling them."""
     if not tiles:
         raise ValueError("No complete trajectory chunks with front-camera observations were found.")
+    scores = [score for _, _, score, _ in tiles if np.isfinite(score)]
+    score_low, score_high = np.percentile(scores, [20, 80]) if scores else (0, 0)
+    diversities = [diversity for _, _, _, diversity in tiles if np.isfinite(diversity)]
+    diversity_low, diversity_high = min(diversities, default=0), max(diversities, default=0)
     height, width, channels = tiles[0][1].shape
     rows = (len(tiles) + COLUMNS - 1) // COLUMNS
     grid = np.full((rows * (height + LABEL_HEIGHT) + (rows + 1) * GAP,
                     COLUMNS * width + (COLUMNS + 1) * GAP, channels), 24, dtype=np.uint8)
-    for index, (label, tile) in enumerate(tiles):
+    for index, (label, tile, score, diversity) in enumerate(tiles):
         if tile.shape != (height, width, channels):
             raise ValueError("Front-camera tile dimensions differ between chunks.")
         row, column = divmod(index, COLUMNS)
         x = GAP + column * (width + GAP)
         y = GAP + row * (height + LABEL_HEIGHT + GAP)
-        cv2.putText(grid, label, (x + 6, y + 19), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (235, 235, 235), 1, cv2.LINE_AA)
+        for line_index, line in enumerate(label.splitlines()):
+            text_color = (235, 235, 235)
+            value = score if line_index == 1 else diversity
+            if line_index in (1, 2) and np.isfinite(value):
+                low, high = (score_low, score_high) if line_index == 1 else (diversity_low, diversity_high)
+                color = np.array([0, 255, 0] if line_index == 1 else [255, 0, 0])  # BGR
+                alpha = float(np.clip((value - low) / (high - low), 0, 1)) if high > low else 0.0
+                text_width = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0][0]
+                background = grid[y + line_index * 22 + 3:y + line_index * 22 + 25,
+                                  x + 3:x + min(width, text_width + 9)]
+                background[:] = np.rint((1 - alpha) * background + alpha * color)
+                if line_index == 1 and alpha >= 0.5:
+                    text_color = (24, 24, 24)
+            cv2.putText(grid, line, (x + 6, y + 19 + line_index * 22),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1, cv2.LINE_AA)
         grid[y + LABEL_HEIGHT:y + LABEL_HEIGHT + height, x:x + width] = tile
     return grid
 
@@ -190,7 +209,20 @@ def create_visualization(log_path, output_path=None):
                 actions.copy(), robot=None, actions_are_normalized=True,
                 postprocessor=postprocessor, save_imgs=False, trajectory_stride=1,
             )
-            tiles.append((f"Chunk {chunk.attrs.get('chunk_index', int(key))} | {actions.shape[1]} steps", front))
+            mmd_label = "not recorded"
+            score = np.nan
+            if "temporal_mmd/mmd2" in chunk:
+                score = chunk["temporal_mmd/mmd2"][()]
+                mmd_label = f"{score:.3f}" if np.isfinite(score) else "N/A"
+            diversity_label = "not recorded"
+            diversity = np.nan
+            if "candidate_diversity/score" in chunk:
+                diversity = chunk["candidate_diversity/score"][()]
+                diversity_label = f"{diversity:.3f}" if np.isfinite(diversity) else "N/A"
+            label = (f"Chunk {chunk.attrs.get('chunk_index', int(key))} | {actions.shape[1]} steps\n"
+                     f"MMD^2 vs previous: {mmd_label}\n"
+                     f"Candidate diversity: {diversity_label}")
+            tiles.append((label, front, score, diversity))
     grid = add_metadata_header(combine_tiles(tiles), metadata, run_time)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if not cv2.imwrite(str(output_path), grid):
@@ -199,15 +231,30 @@ def create_visualization(log_path, output_path=None):
     return output_path
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("log", type=Path, help="Trajectory HDF5 file")
-    parser.add_argument("--output", "-o", type=Path, help="Output PNG (default: same name and folder as the HDF5 file)")
-    args = parser.parse_args()
-    try:
-        create_visualization(args.log, args.output)
-    except (ValueError, OSError, KeyError) as error:
-        parser.exit(1, f"Error: {error}\n")
+    parser.add_argument("logs", nargs="+", help="Trajectory HDF5 files or glob patterns (supports **)")
+    parser.add_argument("--output", "-o", type=Path, help="Output PNG for a single input (default: beside each HDF5 file)")
+    args = parser.parse_args(argv)
+    logs = sorted({
+        Path(path).resolve()
+        for pattern in args.logs
+        for path in glob.glob(os.path.expanduser(pattern), recursive=True)
+        if Path(path).is_file() and Path(path).suffix.lower() in (".h5", ".hdf5")
+    })
+    if not logs:
+        parser.error("No HDF5 files matched the supplied paths or patterns")
+    if args.output and len(logs) != 1:
+        parser.error("--output requires exactly one matching HDF5 file")
+    failures = 0
+    for log in logs:
+        try:
+            create_visualization(log, args.output)
+        except (ValueError, OSError, KeyError) as error:
+            print(f"Error: {log}: {error}", file=sys.stderr)
+            failures += 1
+    if failures:
+        parser.exit(1, f"Failed to render {failures} of {len(logs)} files\n")
 
 
 if __name__ == "__main__":

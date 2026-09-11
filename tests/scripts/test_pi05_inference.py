@@ -36,11 +36,14 @@ for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.proces
                 "--policy.dtype=bfloat16",
                 "--policy.n_action_steps=25",
                 "--policy.num_inference_steps=4",
+                "--policy.mmd_gamma=median",
+                "--policy.diversity_gamma=0.05",
             ]
         )
         self.assertEqual(args.policy_path, "/not/a/local/checkpoint")
         self.assertEqual(
-            args.policy_overrides, ["--dtype=bfloat16", "--n_action_steps=25", "--num_inference_steps=4"]
+            args.policy_overrides,
+            ["--dtype=bfloat16", "--n_action_steps=25", "--num_inference_steps=4", "--mmd_gamma=median", "--diversity_gamma=0.05"],
         )
         self.assertEqual(args.record, "trial")
 

@@ -65,7 +65,7 @@ class TestTrajectoryReplay(unittest.TestCase):
             torch=torch, Tensor=torch.Tensor, np=np, json=json, sys=sys,
             as_numpy=recorder_module.as_numpy, cosine_similarity=cosine_similarity,
             INTERVENTIONS=False, MANUAL_GUIDANCE=False, VIS_SPREADS=False,
-            TRAJ_STD_PERTURB=0.01, MAX_CHUNKS=8, USE_WRIST=False,
+            TRAJ_STD_PERTURB=0.01, MAX_STEPS=800, USE_WRIST=False,
             OBS_LANGUAGE_TOKENS="observation.language.tokens",
             OBS_LANGUAGE_ATTENTION_MASK="observation.language.attention_mask", ACTION="action",
             copy=copy, asdict=asdict, hashlib=hashlib, logging=logging, time=time, version=version, os=os, Path=Path,
@@ -73,12 +73,13 @@ class TestTrajectoryReplay(unittest.TestCase):
             TrajectoryRecorder=recorder_module.TrajectoryRecorder,
             snapshot_processor=recorder_module.snapshot_processor,
             VLMClient=Mock(),
+            deque=deque,
         )
         # Avoid model/hardware imports, but run the actual policy methods being changed.
         tree = ast.parse((POLICY_DIR / "modelling_pi05_taco.py").read_text())
         cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "PI05PolicyTaco")
         names = ("configure_interventions", "reset_rollout", "configure_replay_recording", "_ensure_trajectory_recorder", "capture_replay_observation",
-                 "_sample_trajectory_candidates", "predict_action_chunk", "select_action")
+                 "_sample_trajectory_candidates", "predict_action_chunk", "select_action", "reset")
         nodes = [node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name in names]
         nodes += [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "select_representative_trajectories"]
         exec(compile(ast.Module(body=nodes, type_ignores=[]), "policy_methods", "exec"), self.namespace)
@@ -96,6 +97,7 @@ class TestTrajectoryReplay(unittest.TestCase):
         self.policy.count = 0
         self.policy._checkpoint_sha256 = None
         self.policy._replay_sampling_calls = []
+        self.policy._raw_replay_observation = {}
         self.batch = {
             "observation.state": torch.arange(8, dtype=torch.float32)[None] / 10,
             "observation.language.tokens": torch.tensor([[5, 42, 123456]], dtype=torch.int64),
@@ -133,6 +135,56 @@ class TestTrajectoryReplay(unittest.TestCase):
 
     def test_unguided_replay_with_different_rng(self):
         self.run_replay()
+
+    def test_rollout_stops_after_at_most_800_actions(self):
+        for horizon, expected_chunks in ((100, 8), (50, 16), (25, 32), (30, 26)):
+            with self.subTest(horizon=horizon), patch("builtins.print"):
+                self.policy.config.n_action_steps = horizon
+                self.policy.reset()
+                self.policy.count = 0
+                self.policy.manual_guidance = False
+                self.policy._trajectory_recorder = Mock()
+                self.policy._active_trajectory_index = 0
+                actions = torch.zeros(1, horizon, 8)
+                self.policy._sample_trajectory_candidates = Mock(return_value=(actions, actions))
+                for _ in range(expected_chunks * horizon):
+                    self.policy.select_action(self.batch)
+                for manual_guidance in (False, True):
+                    self.policy.manual_guidance = manual_guidance
+                    with self.assertRaises(SystemExit) as stopped:
+                        self.policy.select_action(self.batch)
+                    self.assertEqual(stopped.exception.code, 0)
+                self.assertEqual(self.policy._sample_trajectory_candidates.call_count, expected_chunks)
+                self.assertEqual(self.policy._trajectory_recorder.record_execution.call_count, expected_chunks)
+                self.assertEqual(len(self.policy._action_queue), 0)
+
+    def test_mmd_is_saved_once_per_chunk_and_policy_reset_clears_overlap(self):
+        with patch.object(self.policy.model, "sample_actions", wraps=self.policy.model.sample_actions) as sample:
+            for _ in range(100):
+                self.policy.select_action(self.batch)
+            self.assertEqual(sample.call_count, 2)
+        with h5py.File(self.policy._trajectory_recorder.path, "r") as file:
+            self.assertEqual(len(file["chunks"]), 2)
+            previous = file["chunks/000000/sampling/000000/full_output"][:, 50:, :7].reshape(15, -1)
+            current = file["chunks/000001/sampling/000000/full_output"][:, :50, :7].reshape(15, -1)
+            expected, gamma = recorder_module.compute_mmd_rbf(current, previous)
+            fixed_gamma = 0.06302211495246096
+            diversity, _ = recorder_module.compute_diversity_rbf(current, fixed_gamma)
+            self.assertAlmostEqual(file["chunks/000001/temporal_mmd/mmd2"][()], expected)
+            self.assertEqual(file["chunks/000001/temporal_mmd/gamma"][()], gamma)
+            self.assertEqual(file["chunks/000001/candidate_diversity/score"][()], diversity)
+            self.assertEqual(file["chunks/000001/candidate_diversity/gamma"][()], fixed_gamma)
+            self.assertEqual(file["chunks/000001/candidate_diversity/horizon"][()], 50)
+            self.assertEqual(file["chunks/000001/candidate_diversity/action_dim"][()], 7)
+            first = file["chunks/000000/sampling/000000/full_output"][:, :50, :7].reshape(15, -1)
+            first_diversity, first_gamma = recorder_module.compute_diversity_rbf(first, fixed_gamma)
+            self.assertEqual(file["chunks/000000/candidate_diversity/score"][()], first_diversity)
+            self.assertEqual(file["chunks/000000/candidate_diversity/gamma"][()], first_gamma)
+        self.policy.reset()
+        self.policy.select_action(self.batch)
+        with h5py.File(self.policy._trajectory_recorder.path, "r") as file:
+            self.assertTrue(np.isnan(file["chunks/000002/temporal_mmd/mmd2"][()]))
+            self.assertTrue(np.isfinite(file["chunks/000002/candidate_diversity/score"][()]))
 
     def test_guided_replay_captures_second_sampling_call(self):
         self.run_replay(guided=True)
@@ -232,7 +284,7 @@ class TestTrajectoryReplay(unittest.TestCase):
             self.assertEqual(metadata["policy_config"]["n_action_steps"], 50)
             self.assertEqual(metadata["launch"]["argv"], argv)
             self.assertEqual(metadata["launch"]["python_executable"], sys.executable)
-            self.assertEqual(metadata["taco_settings"]["max_chunks"], 8)
+            self.assertEqual(metadata["taco_settings"]["max_chunks"], 16)
             self.assertFalse(metadata["interventions"])
             self.assertFalse(metadata["manual_guidance"])
             self.assertTrue(metadata["vis_spreads"])

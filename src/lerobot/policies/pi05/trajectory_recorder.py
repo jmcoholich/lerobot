@@ -14,6 +14,57 @@ import tempfile
 import numpy as np
 
 
+def _rbf_kernel(*samples, gamma):
+    """Build the pooled RBF kernel and resolve fixed or adaptive gamma."""
+    samples = [np.asarray(value, dtype=np.float64) for value in samples]
+    if any(value.ndim != 2 or not value.size for value in samples):
+        raise ValueError("MMD inputs must be nonempty [samples, features] arrays")
+    if any(value.shape[1] != samples[0].shape[1] for value in samples):
+        raise ValueError("MMD inputs must be nonempty [samples, features] arrays with matching features")
+    if any(not np.isfinite(value).all() for value in samples):
+        raise ValueError("MMD inputs must be finite")
+    z = np.concatenate(samples)
+    distances = np.sum((z[:, None, :] - z[None, :, :]) ** 2, axis=-1)
+    if isinstance(gamma, str):
+        if gamma == "median":
+            positive = distances[distances > 0]
+            scale = 2 * np.median(positive) if positive.size else 0.0
+        elif gamma == "max_eig":
+            centered = z - z.mean(axis=0)
+            # The sample Gram matrix shares the covariance's nonzero eigenvalues.
+            scale = np.linalg.eigvalsh(centered @ centered.T)[-1] / (len(z) - 1) if len(z) > 1 else 0.0
+        else:
+            raise ValueError(f"Unsupported MMD gamma: {gamma}")
+        gamma = 1.0 / scale if scale > 0 else 1.0
+    if not np.isfinite(gamma) or gamma <= 0:
+        raise ValueError("MMD gamma must be positive and finite")
+    return np.exp(-gamma * distances), float(gamma)
+
+
+def compute_mmd_rbf(current, previous, gamma="median"):
+    """Return biased MMD squared and effective gamma between adjacent chunk overlaps.
+
+    Each input has one candidate per row and a flattened, temporally aligned
+    overlap per row. The RBF kernel is exp(-gamma * squared_distance).
+    """
+    kernel, gamma = _rbf_kernel(current, previous, gamma=gamma)
+    num_current = len(current)
+    within_current = kernel[:num_current, :num_current].mean()
+    within_previous = kernel[num_current:, num_current:].mean()
+    between_chunks = kernel[:num_current, num_current:].mean()
+    mmd2 = max(within_current + within_previous - 2 * between_chunks, 0.0)
+    return np.float64(mmd2), gamma
+
+
+def compute_diversity_rbf(current, gamma):
+    """Return 1-mean(k(current,current)) and effective gamma, including diagonals.
+
+    Rows are candidate trajectories flattened over the measured horizon.
+    """
+    kernel, gamma = _rbf_kernel(current, gamma=gamma)
+    return np.float64(1 - kernel.mean()), gamma
+
+
 def as_numpy(value):
     """Snapshot a tensor without losing integer tokens/masks or aliasing CPU storage."""
     if hasattr(value, "detach"):
@@ -88,7 +139,10 @@ class TrajectoryRecorder:
             raise ValueError("The trajectory demo name must be a filename, without directory separators")
         self.path = output_dir / f"trajectories_{demo_name}.h5"
         self._next_index = 0
-        with _defer_sigint(), h5py.File(self.path, "x") as file:
+        self._mmd_gamma = metadata.get("policy_config", {}).get("mmd_gamma", "median")
+        self._diversity_gamma = metadata.get("policy_config", {}).get("diversity_gamma", 0.06302211495246096)
+        self.reset()
+        with _defer_sigint(), h5py.File(self.path, "w") as file:
             file.attrs["schema_version"] = 2
             file.attrs["demo_name"] = demo_name
             file.attrs["created_at_utc"] = stamp
@@ -99,6 +153,11 @@ class TrajectoryRecorder:
             _write_tree(file.create_group("artifacts"), artifacts or {})
         logging.info("Recording inference trajectories to %s", self.path.resolve())
 
+    def reset(self):
+        """Discard the overlap when an episode resets, including a partially executed chunk."""
+        self._previous_overlap = None
+        self._previous_record_index = -1
+
     def append(self, *, chunk_index, original, perturbed, selected_indices, observations, task, perturb_std,
                sampling_calls=(), raw_observation=None, perturbation_noise=None):
         """Persist one complete candidate set before guidance or action execution."""
@@ -106,6 +165,18 @@ class TrajectoryRecorder:
         if hasattr(selected_indices, "detach"):
             selected_indices = selected_indices.detach().cpu().numpy()
         selected_indices = np.asarray(selected_indices, dtype=np.int64)
+        # Use all unperturbed candidates, excluding padding and the final Franka gripper dimension.
+        full_actions = sampling_calls[0]["full_output"] if sampling_calls else original
+        full_actions = np.asarray(full_actions)[..., :original.shape[-1] - 1]
+        exec_horizon = original.shape[1]
+        overlap_steps = full_actions.shape[1] - exec_horizon
+        diversity_steps = overlap_steps if overlap_steps > 0 else full_actions.shape[1]
+        current = full_actions[:, :diversity_steps].reshape(len(full_actions), -1)
+        previous = self._previous_overlap if overlap_steps > 0 else None
+        score, gamma = np.nan, np.nan
+        if previous is not None:
+            score, gamma = compute_mmd_rbf(current, previous, self._mmd_gamma)
+        diversity, diversity_gamma = compute_diversity_rbf(current, self._diversity_gamma)
         with _defer_sigint(), self._h5py.File(self.path, "a") as file:
             chunk = file["chunks"].create_group(f"{self._next_index:06d}")
             chunk.attrs["complete"] = False
@@ -130,9 +201,38 @@ class TrajectoryRecorder:
             sampling = chunk.create_group("sampling")
             for index, call in enumerate(sampling_calls):
                 _write_tree(sampling.create_group(f"{index:06d}"), call)
+            _write_tree(chunk.create_group("temporal_mmd"), {
+                "mmd2": score,
+                "gamma": gamma,
+                "gamma_setting": str(self._mmd_gamma),
+                "kernel": "exp(-gamma * squared_distance)",
+                "estimator": "biased MMD squared over flattened normalized action sequences",
+                "source": "all unperturbed candidates, sampling/000000/full_output, without padding or the final gripper dimension",
+                "overlap_steps": overlap_steps,
+                "num_samples": len(full_actions),
+                "action_dim": full_actions.shape[-1],
+                "previous_record_index": self._previous_record_index,
+            })
+            _write_tree(chunk.create_group("candidate_diversity"), {
+                "score": diversity,
+                "gamma": diversity_gamma,
+                "horizon": diversity_steps,
+                "num_samples": len(full_actions),
+                "action_dim": full_actions.shape[-1],
+                "estimator": "1-mean(k(current,current)), including diagonals; higher means more diverse",
+                "source": "all unperturbed current candidates, overlap prefix or full horizon if no overlap, without padding or the final gripper dimension",
+            })
             chunk.attrs["complete"] = True
             record_index = self._next_index
             self._next_index += 1
+            self._previous_overlap = (
+                full_actions[:, exec_horizon:].reshape(len(full_actions), -1).copy()
+                if overlap_steps > 0 else None
+            )
+            self._previous_record_index = record_index
+        if np.isfinite(score):
+            logging.info("Chunk %s temporal MMD²=%.6f (gamma=%.6g, overlap=%s)",
+                         chunk_index, score, gamma, overlap_steps)
         return record_index
 
     def record_execution(self, record_index, *, sampling_calls, actions, source):

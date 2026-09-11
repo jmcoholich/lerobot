@@ -16,8 +16,8 @@ bash collect_eval.bash trial_02
 ```
 
 You can also run `bash pi_05_inference.bash trial_01` directly when you manage
-OpenTeach data collection separately. Use a new recording name for each run;
-trajectory files intentionally refuse to overwrite an existing recording.
+OpenTeach data collection separately. Reusing a recording name overwrites its
+trajectory HDF5 file when the new rollout starts recording.
 
 Keep the checkpoint, task, and inference settings in `pi_05_inference.bash`:
 `--policy.path`, `--policy.dtype`, `--policy.n_action_steps`, and any other

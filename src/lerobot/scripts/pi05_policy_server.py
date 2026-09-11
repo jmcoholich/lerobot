@@ -188,7 +188,7 @@ def serve_connection(connection, session):
                 raise ValueError(f"Unknown operation: {operation}")
             response = ("ok", result)
         except SystemExit as error:
-            # TACO's MAX_CHUNKS ends the rollout, not the persistent server.
+            # TACO's step limit ends the rollout, not the persistent server.
             connection.send(("stop", error.code))
             return
         except Exception as error:

@@ -22,6 +22,71 @@ spec.loader.exec_module(module)
 TrajectoryRecorder = module.TrajectoryRecorder
 
 
+class TestMmdRbf(unittest.TestCase):
+    def test_fixed_gamma_matches_reference_with_unequal_sample_counts(self):
+        from sklearn.metrics.pairwise import rbf_kernel
+
+        rng = np.random.default_rng(42)
+        x, y = rng.normal(size=(15, 400)), rng.normal(size=(11, 400))
+        for setting in (0.002, "median", "max_eig"):
+            score, gamma = module.compute_mmd_rbf(x, y, setting)
+            diversity, _ = module.compute_diversity_rbf(x, gamma)
+            z = np.vstack((x, y))
+            if setting == "median":
+                distances = np.sum((z[:, None] - z[None]) ** 2, axis=-1)
+                self.assertAlmostEqual(gamma, 1 / (2 * np.median(distances[distances > 0])))
+            elif setting == "max_eig":
+                self.assertAlmostEqual(gamma, 1 / np.linalg.eigvalsh(np.cov(z.T))[-1])
+            expected = rbf_kernel(x, x, gamma).mean() + rbf_kernel(y, y, gamma).mean()
+            expected -= 2 * rbf_kernel(x, y, gamma).mean()
+            self.assertAlmostEqual(score, expected, places=12)
+            self.assertAlmostEqual(diversity, 1 - rbf_kernel(x, x, gamma).mean(), places=12)
+
+    def test_identical_and_constant_samples(self):
+        x = np.arange(24).reshape(3, 8)
+        for setting in (0.2, "median", "max_eig"):
+            self.assertAlmostEqual(module.compute_mmd_rbf(x, x[::-1], setting)[0], 0)
+            score, gamma = module.compute_mmd_rbf(np.ones((3, 8)), np.ones((3, 8)), setting)
+            diversity, _ = module.compute_diversity_rbf(np.ones((3, 8)), setting)
+            self.assertEqual(score, 0)
+            self.assertEqual(diversity, 0)
+            self.assertTrue(np.isfinite(gamma))
+
+    def test_temporal_order_is_preserved(self):
+        x = np.array([[0., 1., 2.]])
+        score, _ = module.compute_mmd_rbf(x, x[:, ::-1], 0.5)
+        self.assertAlmostEqual(score, 2 * (1 - np.exp(-4)))
+
+    def test_diversity_increases_with_spread_at_fixed_gamma(self):
+        spread = np.arange(5)[:, None] * 100.0
+        identical = np.zeros((5, 1))
+        score, _ = module.compute_mmd_rbf(spread, identical, 1.0)
+        diversity, _ = module.compute_diversity_rbf(spread, 1.0)
+        reversed_score, _ = module.compute_mmd_rbf(identical, spread, 1.0)
+        reversed_diversity, _ = module.compute_diversity_rbf(identical, 1.0)
+        self.assertAlmostEqual(score, reversed_score)
+        self.assertAlmostEqual(diversity, 1 - 1 / 5)
+        self.assertEqual(reversed_diversity, 0)
+
+    def test_diversity_without_previous_chunk_including_single_candidate(self):
+        from sklearn.metrics.pairwise import rbf_kernel
+
+        for x in (np.arange(12).reshape(3, 4), np.ones((1, 4))):
+            for setting in (0.2, "median", "max_eig"):
+                diversity, gamma = module.compute_diversity_rbf(x, setting)
+                self.assertTrue(np.isfinite(gamma))
+                self.assertAlmostEqual(diversity, 1 - rbf_kernel(x, x, gamma).mean())
+
+    def test_invalid_gamma_and_inputs(self):
+        x = np.ones((2, 3))
+        for gamma in (0, -1, np.inf, np.nan, "invalid"):
+            with self.subTest(gamma=gamma), self.assertRaises(ValueError):
+                module.compute_mmd_rbf(x, x, gamma)
+        for y in (np.ones(3), np.ones((2, 4)), np.ones((0, 3)), np.full((2, 3), np.nan)):
+            with self.assertRaises(ValueError):
+                module.compute_mmd_rbf(x, y)
+
+
 class TestTrajectoryRecorder(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -68,7 +133,7 @@ class TestTrajectoryRecorder(unittest.TestCase):
         self.assertEqual(chunk["observations/observation.language.tokens"].dtype, np.dtype("int64"))
         self.assertEqual(chunk["observations/observation.language.attention_mask"].dtype, np.dtype("bool"))
 
-    def test_chunks_are_readable_without_shutdown_and_existing_demo_is_preserved(self):
+    def test_chunks_are_readable_without_shutdown_and_existing_demo_is_overwritten(self):
         recorder = self.make_recorder()
         recorder.append(**self.record)
         with h5py.File(recorder.path, "r") as file:
@@ -79,10 +144,13 @@ class TestTrajectoryRecorder(unittest.TestCase):
             self.assertEqual(len(file["chunks"]), 2)
             self.assert_record(file["chunks/000001"])
         self.assertEqual(recorder.path.name, "trajectories_test.h5")
-        with self.assertRaises(FileExistsError):
-            self.make_recorder()
+        recorder = self.make_recorder()
         with h5py.File(recorder.path, "r") as file:
-            self.assertEqual(len(file["chunks"]), 2)
+            self.assertEqual(len(file["chunks"]), 0)
+        recorder.append(**self.record)
+        with h5py.File(recorder.path, "r") as file:
+            self.assertEqual(len(file["chunks"]), 1)
+            self.assert_record(file["chunks/000000"])
 
     def test_demo_name_from_launcher_environment(self):
         with patch.dict(os.environ, {"LEROBOT_DEMO_NAME": "asdf"}):
@@ -144,6 +212,87 @@ class TestTrajectoryRecorder(unittest.TestCase):
         with h5py.File(recorder.path, "r") as file:
             self.assert_record(file["chunks/000000"])
             self.assertFalse(file["chunks/000001"].attrs["complete"])
+
+    def test_online_mmd_uses_full_overlap_excludes_gripper_and_padding_and_resets(self):
+        recorder = TrajectoryRecorder({"policy_config": {"mmd_gamma": 0.002}},
+                                      self.directory.name, demo_name="mmd")
+        rng = np.random.default_rng(8)
+        previous = rng.normal(size=(15, 100, 32))
+        current = rng.normal(size=(15, 100, 32))
+        current[:, :50, :7] = previous[:, 50:, :7]
+        # Matching overlaps must score zero despite different gripper, prefixes, tails, and padding.
+        for index, full in enumerate((previous, current)):
+            recorder.append(**{**self.record, "chunk_index": index,
+                               "sampling_calls": [{"full_output": full}]})
+        with h5py.File(recorder.path, "r") as file:
+            first, second = (file[f"chunks/{index:06d}/temporal_mmd"] for index in (0, 1))
+            self.assertTrue(np.isnan(first["mmd2"][()]))
+            self.assertEqual(first["previous_record_index"][()], -1)
+            self.assertAlmostEqual(second["mmd2"][()], 0)
+            self.assertEqual(second["gamma"][()], 0.002)
+            self.assertEqual(second["overlap_steps"][()], 50)
+            self.assertEqual(second["num_samples"][()], 15)
+            self.assertEqual(second["action_dim"][()], 7)
+            self.assertEqual(second["previous_record_index"][()], 0)
+        recorder.reset()
+        recorder.append(**{**self.record, "sampling_calls": [{"full_output": current}]})
+        with h5py.File(recorder.path, "r") as file:
+            self.assertTrue(np.isnan(file["chunks/000002/temporal_mmd/mmd2"][()]))
+
+    def test_no_overlap_is_undefined(self):
+        recorder = self.make_recorder()
+        for _ in range(2):
+            recorder.append(**{**self.record, "sampling_calls": [{"full_output": self.record["original"]}]})
+        with h5py.File(recorder.path, "r") as file:
+            for chunk in file["chunks"].values():
+                self.assertEqual(chunk["temporal_mmd/overlap_steps"][()], 0)
+                self.assertTrue(np.isnan(chunk["temporal_mmd/mmd2"][()]))
+                self.assertEqual(chunk["candidate_diversity/horizon"][()], 50)
+                self.assertTrue(np.isfinite(chunk["candidate_diversity/score"][()]))
+
+    def test_diversity_gamma_is_fixed_and_independent_of_previous_chunk(self):
+        from sklearn.metrics.pairwise import rbf_kernel
+
+        fixed_gamma = 0.002
+        recorder = TrajectoryRecorder({"policy_config": {"mmd_gamma": "median", "diversity_gamma": fixed_gamma}},
+                                      self.directory.name, demo_name="fixed_diversity")
+        rng = np.random.default_rng(20)
+        previous = rng.normal(size=(15, 100, 32))
+        current = rng.normal(size=(15, 100, 32))
+        for earlier in (previous, previous + 100):
+            recorder.reset()
+            for full in (earlier, current):
+                recorder.append(**{**self.record, "sampling_calls": [{"full_output": full}]})
+        x = current[:, :50, :7].reshape(15, -1)
+        expected = 1 - rbf_kernel(x, x, gamma=fixed_gamma).mean()
+        with h5py.File(recorder.path, "r") as file:
+            for chunk in file["chunks"].values():
+                self.assertEqual(chunk["candidate_diversity/gamma"][()], fixed_gamma)
+            for index in (1, 3):
+                self.assertAlmostEqual(file[f"chunks/{index:06d}/candidate_diversity/score"][()], expected)
+            self.assertNotEqual(file["chunks/000001/temporal_mmd/gamma"][()],
+                                file["chunks/000003/temporal_mmd/gamma"][()])
+
+    def test_metrics_ignore_gripper_and_padding_but_include_orientation(self):
+        recorder = self.make_recorder()
+        full = np.zeros((15, 100, 32), dtype=np.float32)
+        for index in range(3):
+            if index == 1:
+                full[:, :, 7:] = np.linspace(-1, 1, 15)[:, None, None]
+            elif index == 2:
+                full[:, :, 3] = np.linspace(-1, 1, 15)[:, None]
+            recorder.append(**{**self.record, "chunk_index": index,
+                               "original": full[:, :50, :8], "perturbed": full[:, :50, :8],
+                               "sampling_calls": [{"full_output": full}]})
+        with h5py.File(recorder.path, "r") as file:
+            self.assertEqual(file["chunks/000000/candidate_diversity/score"][()], 0)
+            self.assertEqual(file["chunks/000001/candidate_diversity/score"][()], 0)
+            self.assertGreater(file["chunks/000002/candidate_diversity/score"][()], 0)
+            self.assertEqual(file["chunks/000001/temporal_mmd/mmd2"][()], 0)
+            self.assertEqual(file["chunks/000001/temporal_mmd/gamma"][()], 1)
+            self.assertGreater(file["chunks/000002/temporal_mmd/mmd2"][()], 0)
+            self.assertEqual(file["chunks/000001/temporal_mmd/action_dim"][()], 7)
+            self.assertEqual(file["chunks/000001/candidate_diversity/action_dim"][()], 7)
 
 
 if __name__ == "__main__":

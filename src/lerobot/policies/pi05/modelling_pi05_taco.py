@@ -130,7 +130,7 @@ if vlm_io_path.exists() and vlm_io_path.is_dir():
         if file.is_file():
             file.unlink()
 
-MAX_CHUNKS = 16
+MAX_STEPS = 800
 # Defaults for local inference; the server applies per-rollout settings from the launcher.
 INTERVENTIONS = False
 # INTERVENTIONS = "PIVOT"
@@ -1433,6 +1433,8 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
     def reset(self):
         """Reset internal state - called when environment resets."""
+        if self._trajectory_recorder is not None:
+            self._trajectory_recorder.reset()
         self._action_queue = deque(maxlen=self.config.n_action_steps)
         self._queues = {
             ACTION: deque(maxlen=self.config.n_action_steps),
@@ -1577,6 +1579,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             for relative_path in (
                 "collect_eval.bash", "pi_05_inference.bash", "src/lerobot/scripts/lerobot_record.py",
                 "src/lerobot/scripts/pi05_inference.py", "src/lerobot/scripts/pi05_policy_server.py",
+                "src/lerobot/policies/pi05/trajectory_recorder.py",
                 "src/lerobot/robots/franka/franka.py", "src/lerobot/robots/franka/franka_config.py",
             ):
                 source_path = repo_root / relative_path
@@ -1609,7 +1612,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     },
                 },
                 "taco_settings": {
-                    "max_chunks": MAX_CHUNKS,
+                    "max_chunks": MAX_STEPS // self.config.n_action_steps,
                     "trajectory_perturb_std": TRAJ_STD_PERTURB,
                     "use_wrist": USE_WRIST,
                 },
@@ -1709,7 +1712,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         # guidance_action = None
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
-            if self.count == MAX_CHUNKS and not self.manual_guidance:
+            if self.count >= MAX_STEPS // self.config.n_action_steps:
                 sys.exit(0)
             intervention_period = 1
             # consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)

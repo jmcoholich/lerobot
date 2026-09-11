@@ -20,7 +20,8 @@ class TestPi05InferenceArgs(unittest.TestCase):
                         "test_inference", str(SCRIPT), *args,
                     ],
                     check=True, capture_output=True, text=True,
-                    env=os.environ | {"LEROBOT_POLICY_SERVER": "/tmp/test-pi05.sock"},
+                    env=os.environ | {"LEROBOT_POLICY_SERVER": "/tmp/test-pi05.sock", "LEROBOT_MMD_GAMMA": "0.002",
+                                      "LEROBOT_DIVERSITY_GAMMA": "0.05"},
                 )
                 self.assertIn(f"--robot.record={expected}", result.stdout.splitlines())
                 self.assertIn("--policy_server=/tmp/test-pi05.sock", result.stdout.splitlines())
@@ -29,6 +30,8 @@ class TestPi05InferenceArgs(unittest.TestCase):
                 self.assertIn("--interventions=none", result.stdout.splitlines())
                 self.assertIn("--manual_guidance=false", result.stdout.splitlines())
                 self.assertIn("--vis_spreads=false", result.stdout.splitlines())
+                self.assertIn("--policy.mmd_gamma=0.002", result.stdout.splitlines())
+                self.assertIn("--policy.diversity_gamma=0.05", result.stdout.splitlines())
                 self.assertFalse(any(arg.startswith("--dataset.") for arg in result.stdout.splitlines()))
 
 

@@ -3,6 +3,7 @@ export LEROBOT_DEMO_NAME="${RECORD_NAME}"
 
 export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH}"
 
+# MMD gamma: median (adaptive), max_eig, or a positive fixed number.
 python src/lerobot/scripts/pi05_inference.py \
   --policy_server="${LEROBOT_POLICY_SERVER:-/tmp/lerobot-pi05-${UID}.sock}" \
   --robot.type=franka \
@@ -16,6 +17,8 @@ python src/lerobot/scripts/pi05_inference.py \
   --vis_spreads=false \
   --policy.dtype=bfloat16 \
   --policy.n_action_steps=50 \
+  --policy.mmd_gamma="${LEROBOT_MMD_GAMMA:-median}" \
+  --policy.diversity_gamma="${LEROBOT_DIVERSITY_GAMMA:-0.06302211495246096}" \
   --policy.path=/home/jeremiah/lerobot/outputs/both_in_bin_interleaved/checkpoints/003000/pretrained_model
   # --policy.path=/home/jeremiah/lerobot/outputs/both_in_bin_interleaved/checkpoints/003000/pretrained_model
   # --policy.type=pi05 \

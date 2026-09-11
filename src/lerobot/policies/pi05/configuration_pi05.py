@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 from dataclasses import dataclass, field
 
 from lerobot.configs.policies import PreTrainedConfig
@@ -36,6 +37,8 @@ class PI05Config(PreTrainedConfig):
     n_obs_steps: int = 1
     chunk_size: int = 50  # Number of action steps to predict, in openpi called "action_horizon"
     n_action_steps: int = 50  # Number of action steps to execute
+    mmd_gamma: float | str = "median"  # RBF exp(-gamma * squared_distance); or "max_eig"
+    diversity_gamma: float = 0.06302211495246096  # Fixed median from try_for_success_50_5
 
     # Shorter state and action vectors will be padded to these dimensions
     max_state_dim: int = 32
@@ -101,6 +104,13 @@ class PI05Config(PreTrainedConfig):
         super().__post_init__()
 
         # Validate configuration
+        if not math.isfinite(self.diversity_gamma) or self.diversity_gamma <= 0:
+            raise ValueError("diversity_gamma must be positive and finite")
+        if isinstance(self.mmd_gamma, str):
+            if self.mmd_gamma not in ("median", "max_eig"):
+                raise ValueError("mmd_gamma must be 'median', 'max_eig', or a positive finite number")
+        elif not math.isfinite(self.mmd_gamma) or self.mmd_gamma <= 0:
+            raise ValueError("mmd_gamma must be positive and finite")
         if self.n_action_steps > self.chunk_size:
             raise ValueError(
                 f"n_action_steps ({self.n_action_steps}) cannot be greater than chunk_size ({self.chunk_size})"

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import h5py
 import numpy as np
@@ -18,6 +19,32 @@ spec.loader.exec_module(module)
 
 
 class TestTrajectoryVisualization(unittest.TestCase):
+    def test_diversity_is_rendered_with_three_decimals_and_missing_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "test.h5"
+            with h5py.File(path, "w") as file:
+                for index, diversity in enumerate((0.6784, np.nan, None)):
+                    chunk = file.create_group(f"chunks/{index:06d}")
+                    chunk.attrs["complete"] = True
+                    chunk.create_dataset(module.FRONT_IMAGE, data=np.zeros((1, 3, 360, 640), dtype=np.float32))
+                    chunk.create_dataset("selected_actions", data=np.zeros((5, 50, 8)))
+                    chunk.create_dataset("selected_indices", data=np.arange(5))
+                    chunk.create_dataset("sampling/000000/full_output", data=np.zeros((15, 100, 32)))
+                    if diversity is not None:
+                        chunk.create_dataset("candidate_diversity/score", data=diversity)
+            tile = np.full((360, 360, 3), 60, dtype=np.uint8)
+            with patch.object(module, "load_plot_postprocessor", return_value=None), \
+                 patch.object(module, "load_renderer", return_value=lambda *args, **kwargs: (tile, None)), \
+                 patch.object(module.cv2, "putText", wraps=module.cv2.putText) as draw:
+                output = module.create_visualization(path)
+            labels = [call.args[1] for call in draw.call_args_list if call.args[1].startswith("Candidate diversity:")]
+            self.assertEqual(labels, ["Candidate diversity: 0.678", "Candidate diversity: N/A",
+                                      "Candidate diversity: not recorded"])
+            rendered = module.cv2.imread(str(output))
+            np.testing.assert_array_equal(rendered[152 + module.GAP + module.LABEL_HEIGHT:
+                                                  152 + module.GAP + module.LABEL_HEIGHT + 360,
+                                                  module.GAP:module.GAP + 360], tile)
+
     def test_run_time_uses_saved_recording_date(self):
         with h5py.File("timestamp.h5", "w", driver="core", backing_store=False) as file:
             file.attrs["created_at_utc"] = "20260910T004638_105191Z"
@@ -56,10 +83,10 @@ class TestTrajectoryVisualization(unittest.TestCase):
                 np.testing.assert_array_equal(chunk["selected_actions"], selected)
 
     def test_seventh_image_starts_second_row_without_resizing(self):
-        tiles = [(str(index), np.full((12, 24, 3), index + 1, dtype=np.uint8)) for index in range(7)]
+        tiles = [(str(index), np.full((12, 24, 3), index + 1, dtype=np.uint8), np.nan, np.nan) for index in range(7)]
         grid = module.combine_tiles(tiles)
         self.assertEqual(grid.shape, (2 * (12 + module.LABEL_HEIGHT) + 3 * module.GAP, 6 * 24 + 7 * module.GAP, 3))
-        for index, (_, tile) in enumerate(tiles):
+        for index, (_, tile, _, _) in enumerate(tiles):
             row, column = divmod(index, 6)
             x = module.GAP + column * (24 + module.GAP)
             y = module.GAP + row * (12 + module.LABEL_HEIGHT + module.GAP) + module.LABEL_HEIGHT
