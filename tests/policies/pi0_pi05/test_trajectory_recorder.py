@@ -263,7 +263,7 @@ class TestTrajectoryRecorder(unittest.TestCase):
             recorder.reset()
             for full in (earlier, current):
                 recorder.append(**{**self.record, "sampling_calls": [{"full_output": full}]})
-        x = current[:, :50, :7].reshape(15, -1)
+        x = current[:, :, :7].reshape(15, -1)
         expected = 1 - rbf_kernel(x, x, gamma=fixed_gamma).mean()
         with h5py.File(recorder.path, "r") as file:
             for chunk in file["chunks"].values():
@@ -272,6 +272,24 @@ class TestTrajectoryRecorder(unittest.TestCase):
                 self.assertAlmostEqual(file[f"chunks/{index:06d}/candidate_diversity/score"][()], expected)
             self.assertNotEqual(file["chunks/000001/temporal_mmd/gamma"][()],
                                 file["chunks/000003/temporal_mmd/gamma"][()])
+
+    def test_diversity_uses_full_horizon_independent_of_execution_length(self):
+        recorder = self.make_recorder()
+        full = np.zeros((15, 100, 32), dtype=np.float32)
+        # Candidates differ only at the final predicted step.
+        full[:, -1, 0] = np.linspace(-1, 1, 15)
+        for horizon in (1, 25, 50, 75, 100):
+            recorder.reset()
+            recorder.append(**{**self.record, "execution_horizon": horizon,
+                               "sampling_calls": [{"full_output": full}]})
+        with h5py.File(recorder.path, "r") as file:
+            scores = []
+            for chunk, horizon in zip(file["chunks"].values(), (1, 25, 50, 75, 100)):
+                scores.append(chunk["candidate_diversity/score"][()])
+                self.assertEqual(chunk["candidate_diversity/horizon"][()], 100)
+                self.assertEqual(chunk["temporal_mmd/overlap_steps"][()], 100 - horizon)
+            self.assertGreater(scores[0], 0)
+            np.testing.assert_array_equal(scores, np.repeat(scores[0], 5))
 
     def test_metrics_ignore_gripper_and_padding_but_include_orientation(self):
         recorder = self.make_recorder()

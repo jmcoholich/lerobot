@@ -209,7 +209,7 @@ class TestTrajectoryReplay(unittest.TestCase):
                 # First chunk: no MMD, below threshold. Second: exactly at threshold.
                 # Third: above threshold. Fourth: below, so the trigger must clear.
                 with patch.object(recorder_module, "compute_diversity_rbf", return_value=(0.2, 0.063)), \
-                     patch.object(recorder_module, "compute_mmd_rbf", side_effect=[(0.2082, 1.), (0.4, 1.), (0.1, 1.)]):
+                     patch.object(recorder_module, "compute_mmd_rbf", side_effect=[(recorder_module.INTERVENTION_THRESHOLD - 1., 1.), (recorder_module.INTERVENTION_THRESHOLD - 1. + 0.2, 1.), (0.1, 1.)]):
                     for _ in range(200):
                         self.policy.select_action(self.batch)
                 with h5py.File(recorder.path, "r") as file:
@@ -220,11 +220,11 @@ class TestTrajectoryReplay(unittest.TestCase):
                         self.assertEqual(metrics["triggered"][()], index == 2)
                         self.assertEqual(metrics["occurred"][()], occurred)
                         self.assertEqual(metrics.attrs["setting"], strategy)
-                        self.assertEqual(metrics["threshold"][()], 1.2082)
+                        self.assertEqual(metrics["threshold"][()], 1.715)
                         self.assertEqual(metrics["diversity_weight"][()], 5.)
                         self.assertEqual(len(chunk["sampling"]), 2 if occurred else 1)
                     self.assertEqual(file["chunks/000000/intervention/score"][()], 1.)
-                    self.assertEqual(file["chunks/000001/intervention/score"][()], 1.2082)
+                    self.assertEqual(file["chunks/000001/intervention/score"][()], recorder_module.INTERVENTION_THRESHOLD)
                 recorder.intervention_triggered = True
                 recorder.reset()
                 self.assertFalse(recorder.intervention_triggered)
@@ -267,7 +267,7 @@ class TestTrajectoryReplay(unittest.TestCase):
             self.assertEqual(file["chunks/000001/temporal_mmd/gamma"][()], gamma)
             self.assertEqual(file["chunks/000001/candidate_diversity/score"][()], diversity)
             self.assertEqual(file["chunks/000001/candidate_diversity/gamma"][()], fixed_gamma)
-            self.assertEqual(file["chunks/000001/candidate_diversity/horizon"][()], 50)
+            self.assertEqual(file["chunks/000001/candidate_diversity/horizon"][()], 100)
             self.assertEqual(file["chunks/000001/candidate_diversity/action_dim"][()], 7)
             first = file["chunks/000000/sampling/000000/full_output"][:, :50, :7].reshape(15, -1)
             first_diversity, first_gamma = recorder_module.compute_diversity_rbf(first, fixed_gamma)

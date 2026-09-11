@@ -197,12 +197,13 @@ with adaptive gamma falling back to 1. The requested setting is recorded in
 ## Intervention trigger and recording
 
 Automatic PIVOT, primitive, and ensemble guidance runs when
-`MMD² + 5 * diversity > 1.293`, replacing the first-two-chunks schedule.
+`MMD² + 5 * diversity > 1.715`, replacing the first-two-chunks schedule.
 An undefined MMD (first chunk, reset, or no overlap) contributes zero to this
 score; the saved MMD itself remains NaN. The first chunk is not forced to
 intervene. Both metrics exclude gripper. These constants were calibrated on
 20 rollouts with 50-step execution and produced a pooled intervention rate of
-14.98%; changing the horizon or metric gamma settings requires recalibration.
+14.98% (46/307 chunks), including every first chunk, using full-horizon diversity.
+Changing the execution horizon or metric gamma settings also requires recalibration.
 
 The recorder uses the explicit execution horizon (`n_action_steps`) to align
 overlaps, even when recorded candidates retain the full prediction horizon.
@@ -244,8 +245,8 @@ formula is one minus the within-current term of the biased MMD estimator:
 `1 - mean(k(current, current))`, including diagonal self-similarities. It uses
 only candidates at the current observation; MMD uses both adjacent overlaps.
 
-The recorder uses the same 15 unperturbed, normalized candidates and overlapping
-prefix as MMD. Both metrics retain all seven XYZ and quaternion dimensions and
+The recorder uses all 100 predicted steps of the same 15 unperturbed, normalized
+candidates, independently of `n_action_steps`. MMD still uses the overlap. Both metrics retain all seven XYZ and quaternion dimensions and
 exclude the final gripper dimension.
 The score is saved under `chunks/<index>/candidate_diversity/score`, along with
 `gamma`, `horizon`, `num_samples`, `action_dim`, and source/estimator attributes.
@@ -260,7 +261,7 @@ gamma is undefined and was excluded. Excluding the gripper does not change this
 fixed gamma.
 The value is stored in configuration, so rollouts do not reread the reference.
 The same fixed gamma is used for every chunk, including the first after reset.
-With no overlap, diversity uses the full predicted horizon; MMD remains undefined.
+With no overlap, MMD remains undefined; diversity still uses the full predicted horizon.
 
 For B candidates the score lies between 0 and 1 - 1/B. Identical candidates give
 0; increasingly separated candidates approach 1 - 1/B at a fixed gamma. Higher

@@ -14,7 +14,7 @@ import tempfile
 import numpy as np
 
 INTERVENTION_DIVERSITY_WEIGHT = 5.0
-INTERVENTION_THRESHOLD = 1.293
+INTERVENTION_THRESHOLD = 1.715
 
 
 def _rbf_kernel(*samples, gamma):
@@ -176,12 +176,13 @@ class TrajectoryRecorder:
         full_actions = np.asarray(full_actions)[..., :original.shape[-1] - 1]
         exec_horizon = original.shape[1] if execution_horizon is None else execution_horizon
         overlap_steps = full_actions.shape[1] - exec_horizon
-        diversity_steps = overlap_steps if overlap_steps > 0 else full_actions.shape[1]
-        current = full_actions[:, :diversity_steps].reshape(len(full_actions), -1)
+        diversity_steps = full_actions.shape[1]
+        current = full_actions.reshape(len(full_actions), -1)
         previous = self._previous_overlap if overlap_steps > 0 else None
         score, gamma = np.nan, np.nan
         if previous is not None:
-            score, gamma = compute_mmd_rbf(current, previous, self._mmd_gamma)
+            overlap = full_actions[:, :overlap_steps].reshape(len(full_actions), -1)
+            score, gamma = compute_mmd_rbf(overlap, previous, self._mmd_gamma)
         diversity, diversity_gamma = compute_diversity_rbf(current, self._diversity_gamma)
         # Missing overlap (including the first chunk) contributes zero MMD.
         intervention_score = (0.0 if np.isnan(score) else score) + INTERVENTION_DIVERSITY_WEIGHT * diversity
@@ -230,7 +231,7 @@ class TrajectoryRecorder:
                 "num_samples": len(full_actions),
                 "action_dim": full_actions.shape[-1],
                 "estimator": "1-mean(k(current,current)), including diagonals; higher means more diverse",
-                "source": "all unperturbed current candidates, overlap prefix or full horizon if no overlap, without padding or the final gripper dimension",
+                "source": "all unperturbed current candidates, full prediction horizon, without padding or the final gripper dimension",
             })
             _write_tree(chunk.create_group("intervention"), {
                 "score": intervention_score,
