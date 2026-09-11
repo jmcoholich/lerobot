@@ -1976,7 +1976,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
         return loss, loss_dict
 
-    def action_ensemble(self, action1, action2, batch, postprocessor, robot, action1_weight=0.5, save_imgs=False):
+    def action_ensemble(self, action1, action2, batch, postprocessor, robot, action1_weight=0.7, save_imgs=False):
         assert action1.shape[0] == 1
         assert action2.shape[0] == 1
         action2_weight = 1.0 - action1_weight
