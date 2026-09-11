@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 
-if [[ $# -ne 1 ]]; then
-    echo "Usage: $0 <record_name>"
-    echo "Example: $0 plug_fwd_11"
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+    echo "Usage: $0 <record_name> [none|PIVOT|primitive|ensemble|eve]"
+    echo "Example: $0 test_eve_7 eve"
     exit 1
 fi
 
 set -m
 
 RECORD_NAME="$1"
+INTERVENTIONS="${2:-none}"
 OPENTEACH_DATA_DIR="/home/jeremiah/openteach/extracted_data"
 export LEROBOT_TRAJECTORY_DIR="${LEROBOT_TRAJECTORY_DIR:-${OPENTEACH_DATA_DIR}/demonstration_${RECORD_NAME}}"
 DATA_PID=""
@@ -48,7 +49,7 @@ DATA_PID=$!
 sleep 0.2
 
 echo "Starting pi_05_inference.bash..."
-bash pi_05_inference.bash "${RECORD_NAME}" &
+bash pi_05_inference.bash "${RECORD_NAME}" "${INTERVENTIONS}" &
 INFERENCE_PID=$!
 
 echo "Started:"

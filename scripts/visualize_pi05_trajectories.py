@@ -25,7 +25,7 @@ from safetensors.numpy import load as load_safetensors
 FRONT_IMAGE = "observations/observation.images.camera_front"
 COLUMNS = 6
 GAP = 8
-LABEL_HEIGHT = 72
+LABEL_HEIGHT = 204
 
 
 @contextmanager
@@ -86,39 +86,75 @@ def full_selected_trajectories(chunk):
     return actions
 
 
+def intervention_detail_lines(chunk):
+    """Describe recorded choices only for interventions that actually occurred."""
+    if "intervention/occurred" not in chunk or not chunk["intervention/occurred"][()]:
+        return []
+    attrs = chunk["intervention"].attrs
+    def read(name, default="not recorded"):
+        value = attrs.get(name, default)
+        return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+    setting = read("setting")
+    lines = []
+    if setting in ("PIVOT", "ensemble"):
+        lines.append(f"PIVOT color: {read('pivot_color')}")
+    if setting in ("primitive", "ensemble"):
+        lines.append(f"Primitive: {read('primitive')}")
+    return lines
+
+
+def timing_label(chunk, *fields):
+    """Format saved seconds without treating absent measurements as zero."""
+    if any(f"timing/{field}" not in chunk for field in fields):
+        return "not recorded"
+    values = [float(chunk[f"timing/{field}"][()]) for field in fields]
+    if any(not np.isfinite(value) or value < 0 for value in values):
+        return "N/A"
+    label = f"{sum(values):.3f} s"
+    if "execution_s" in fields and "timing/execution_complete" in chunk and not chunk["timing/execution_complete"][()]:
+        label += " (partial)"
+    return label
+
+
 def combine_tiles(tiles):
     """Lay out equally-sized BGR camera tiles, six per row, without scaling them."""
     if not tiles:
         raise ValueError("No complete trajectory chunks with front-camera observations were found.")
-    scores = [score for _, _, score, _ in tiles if np.isfinite(score)]
+    scores = [score for _, _, score, _, _ in tiles if np.isfinite(score)]
     score_low, score_high = np.percentile(scores, [20, 80]) if scores else (0, 0)
-    diversities = [diversity for _, _, _, diversity in tiles if np.isfinite(diversity)]
+    diversities = [diversity for _, _, _, diversity, _ in tiles if np.isfinite(diversity)]
     diversity_low, diversity_high = min(diversities, default=0), max(diversities, default=0)
     height, width, channels = tiles[0][1].shape
     rows = (len(tiles) + COLUMNS - 1) // COLUMNS
     grid = np.full((rows * (height + LABEL_HEIGHT) + (rows + 1) * GAP,
                     COLUMNS * width + (COLUMNS + 1) * GAP, channels), 24, dtype=np.uint8)
-    for index, (label, tile, score, diversity) in enumerate(tiles):
+    for index, (label, tile, score, diversity, intervention) in enumerate(tiles):
         if tile.shape != (height, width, channels):
             raise ValueError("Front-camera tile dimensions differ between chunks.")
         row, column = divmod(index, COLUMNS)
         x = GAP + column * (width + GAP)
         y = GAP + row * (height + LABEL_HEIGHT + GAP)
+        text_area_width = width
         for line_index, line in enumerate(label.splitlines()):
+            base_width = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0][0]
+            scale = min(0.5, 0.5 * (text_area_width - 12) / max(base_width, 1))
             text_color = (235, 235, 235)
+            if intervention and line.startswith("Intervention:"):
+                grid[y + line_index * 22 + 3:y + line_index * 22 + 25, x + 3:x + width - 3] = (0, 190, 255)  # Amber, BGR
+                text_color = (24, 24, 24)
             value = score if line_index == 1 else diversity
             if line_index in (1, 2) and np.isfinite(value):
                 low, high = (score_low, score_high) if line_index == 1 else (diversity_low, diversity_high)
                 color = np.array([0, 255, 0] if line_index == 1 else [255, 0, 0])  # BGR
                 alpha = float(np.clip((value - low) / (high - low), 0, 1)) if high > low else 0.0
-                text_width = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0][0]
+                text_width = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)[0][0]
                 background = grid[y + line_index * 22 + 3:y + line_index * 22 + 25,
-                                  x + 3:x + min(width, text_width + 9)]
+                                  x + 3:x + min(text_area_width, text_width + 9)]
                 background[:] = np.rint((1 - alpha) * background + alpha * color)
                 if line_index == 1 and alpha >= 0.5:
                     text_color = (24, 24, 24)
             cv2.putText(grid, line, (x + 6, y + 19 + line_index * 22),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1, cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_SIMPLEX, scale, text_color, 1, cv2.LINE_AA)
         grid[y + LABEL_HEIGHT:y + LABEL_HEIGHT + height, x:x + width] = tile
     return grid
 
@@ -139,7 +175,7 @@ def recorded_run_time(file):
     return recorded.astimezone(ZoneInfo("America/New_York")).strftime("%B %d, %Y at %I:%M:%S %p %Z")
 
 
-def add_metadata_header(grid, metadata, run_time="not recorded"):
+def add_metadata_header(grid, metadata, run_time="not recorded", threshold="not recorded"):
     """Render recorded run settings above the grid, wrapping long checkpoint paths."""
     policy = metadata.get("policy_config") or (metadata.get("rollout_config") or {}).get("policy") or {}
     checkpoint = metadata.get("checkpoint_file") or policy.get("pretrained_path") or "not recorded"
@@ -148,6 +184,8 @@ def add_metadata_header(grid, metadata, run_time="not recorded"):
         intervention = "no intervention"
     else:
         intervention = str(intervention).lower()
+        if intervention == "ensemble":
+            intervention = "EVE"
     if metadata.get("manual_guidance"):
         intervention = "manual guidance"
     elif metadata.get("vis_spreads"):
@@ -156,6 +194,7 @@ def add_metadata_header(grid, metadata, run_time="not recorded"):
         f"Recorded: {run_time}",
         f"Checkpoint: {checkpoint}",
         f"Intervention: {intervention}",
+        f"Intervention threshold: {threshold}",
         f"n_action_steps: {policy.get('n_action_steps', 'not recorded')}",
     ]
     margin, line_height, scale = 16, 30, 0.65
@@ -186,6 +225,7 @@ def create_visualization(log_path, output_path=None):
     if output_path.suffix.lower() != ".png":
         raise ValueError("Use a .png output filename for the combined image.")
     tiles = []
+    thresholds = set()
     with h5py.File(log_path, "r") as file:
         metadata = json.loads(file.attrs.get("metadata_json", "{}"))
         run_time = recorded_run_time(file)
@@ -219,11 +259,36 @@ def create_visualization(log_path, output_path=None):
             if "candidate_diversity/score" in chunk:
                 diversity = chunk["candidate_diversity/score"][()]
                 diversity_label = f"{diversity:.3f}" if np.isfinite(diversity) else "N/A"
+            combined_label = "not recorded"
+            if "intervention/score" in chunk:
+                combined = float(chunk["intervention/score"][()])
+                combined_label = f"{combined:.3f}" if np.isfinite(combined) else "N/A"
+            if "intervention/threshold" in chunk:
+                threshold = float(chunk["intervention/threshold"][()])
+                if np.isfinite(threshold):
+                    thresholds.add(threshold)
+            intervention_label = ""
+            if "intervention/occurred" in chunk:
+                if chunk["intervention/occurred"][()]:
+                    setting = chunk["intervention"].attrs.get("setting", "unknown")
+                    if isinstance(setting, bytes):
+                        setting = setting.decode("utf-8")
+                    intervention_label = {"ensemble": "EVE", "primitive": "Primitive", "manual": "Manual"}.get(setting, setting)
             label = (f"Chunk {chunk.attrs.get('chunk_index', int(key))} | {actions.shape[1]} steps\n"
                      f"MMD^2 vs previous: {mmd_label}\n"
-                     f"Candidate diversity: {diversity_label}")
-            tiles.append((label, front, score, diversity))
-    grid = add_metadata_header(combine_tiles(tiles), metadata, run_time)
+                     f"Candidate diversity: {diversity_label}\n"
+                     f"Intervention score: {combined_label}\n"
+                     f"Execution + inference: {timing_label(chunk, 'execution_s', 'base_inference_s')}")
+            if intervention_label:
+                label += f"\nIntervention: {intervention_label}"
+            details = intervention_detail_lines(chunk)
+            if details:
+                label += "\n" + "\n".join(details)
+            if intervention_label:
+                label += f"\nIntervention time: {timing_label(chunk, 'intervention_s')}"
+            tiles.append((label, front, score, diversity, intervention_label))
+    threshold_label = ", ".join(f"{value:g}" for value in sorted(thresholds)) or "not recorded"
+    grid = add_metadata_header(combine_tiles(tiles), metadata, run_time, threshold_label)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if not cv2.imwrite(str(output_path), grid):
         raise OSError(f"Could not write {output_path}")

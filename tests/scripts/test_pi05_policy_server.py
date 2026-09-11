@@ -104,7 +104,8 @@ class TestPolicySession(unittest.TestCase):
 class TestConnections(unittest.TestCase):
     def test_raw_protocol_returns_named_actions_and_stops_only_the_rollout(self):
         session = Mock()
-        session.predict_robot.side_effect = [{"x": 0.25}, SystemExit(0)]
+        info = {"record_index": 3, "chunk_complete": True}
+        session.predict_robot.side_effect = [{"x": 0.25}, {"action": {"x": 0.5}, "timing": info}, SystemExit(0)]
         robot = SimpleNamespace(robot_type="franka", debug=True)
         with tempfile.TemporaryDirectory() as directory:
             address = os.path.join(directory, "policy.sock")
@@ -121,8 +122,14 @@ class TestConnections(unittest.TestCase):
                     client.request("configure_robot", policy_path="/checkpoint")
                     action = client.predict_action({"joint": 1.0}, "task", robot, raw_observation=True)
                     self.assertEqual(action, {"x": 0.25})
+                    action = client.predict_action({"joint": 1.0}, "task", robot, raw_observation=True, with_timing=True)
+                    self.assertEqual(action, {"x": 0.5})
+                    self.assertEqual(client.last_timing_info, info)
                     with self.assertRaises(SystemExit):
                         client.predict_action({"joint": 1.0}, "task", robot, raw_observation=True)
+                    session.record_timing.return_value = None
+                    client.request("record_timing", rollout_timing={"elapsed_s": 2., "finalized": True})
+                    session.record_timing.assert_called_once_with(rollout_timing={"elapsed_s": 2., "finalized": True})
                 finally:
                     client.close()
                 thread.join(timeout=5)

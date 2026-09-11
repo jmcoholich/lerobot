@@ -9,6 +9,7 @@ from dataclasses import asdict
 
 from lerobot.robots.franka import FrankaConfig, FrankaRobot
 from lerobot.scripts.pi05_policy_server import DEFAULT_SOCKET, ROLLOUT_ENV, RemotePolicyClient
+from lerobot.scripts.pi05_timing import RolloutTiming
 from lerobot.utils.robot_utils import precise_sleep
 
 
@@ -24,9 +25,15 @@ def parse_args(argv=None):
     parser.add_argument("--duration", type=float, default=30000)
     parser.add_argument("--fps", type=float, default=30)
     parser.add_argument("--interventions", choices=["none", "PIVOT", "primitive", "ensemble"], default="none")
+    parser.add_argument("--vlm_server_url", required=True,
+                        help="Base URL of the OpenAI-compatible VLM service for interventions")
+    parser.add_argument("--vlm_model_name", default="Qwen/Qwen2.5-VL-72B-Instruct",
+                        help="Model identifier served by the VLM service")
     parser.add_argument("--manual_guidance", choices=["true", "false"], default="false")
     parser.add_argument("--vis_spreads", choices=["true", "false"], default="false")
     args, overrides = parser.parse_known_args(argv)
+    if not args.vlm_server_url.strip():
+        parser.error("--vlm_server_url must not be empty")
     args.manual_guidance = args.manual_guidance == "true"
     args.vis_spreads = args.vis_spreads == "true"
     if sum((args.interventions != "none", args.manual_guidance, args.vis_spreads)) > 1:
@@ -44,6 +51,8 @@ def run(args):
         setup_t = time.perf_counter()
         robot_cfg = FrankaConfig(id=args.robot_id, port=args.robot_port, record=args.record)
         robot = FrankaRobot(robot_cfg)
+        timing = None
+        end_reason = "duration_limit"
         logging.info("Startup: robot setup %.2fs", time.perf_counter() - setup_t)
         try:
             setup_t = time.perf_counter()
@@ -64,6 +73,8 @@ def run(args):
                     "policy_server": args.policy_server,
                     "intervention_settings": {
                         "interventions": args.interventions,
+                        "vlm_server_url": args.vlm_server_url,
+                        "vlm_model_name": args.vlm_model_name,
                         "manual_guidance": args.manual_guidance,
                         "vis_spreads": args.vis_spreads,
                     },
@@ -74,14 +85,19 @@ def run(args):
             logging.info("Startup: policy/processor setup %.2fs", time.perf_counter() - setup_t)
             robot.connect()
             client.reset()
-            start = time.perf_counter()
+            timing = RolloutTiming(client)
+            start = timing.start
             first_action = True
             while time.perf_counter() - start < args.duration:
-                step_start = time.perf_counter()
+                step_start = timing.begin_step()
                 observation = robot.get_observation()
                 observation_ready = time.perf_counter()
-                action = client.predict_action(observation, args.task, robot, raw_observation=True)
+                action = client.predict_action(observation, args.task, robot, raw_observation=True, with_timing=True)
+                timing.prediction_done(client.last_timing_info, observation_ready - step_start,
+                                       time.perf_counter() - observation_ready)
+                command_start = timing.begin_command()
                 robot.send_action(action)
+                timing.command_done(command_start)
                 if first_action:
                     logging.info(
                         "First action: camera/state acquisition %.2fs, inference and command %.2fs",
@@ -90,9 +106,17 @@ def run(args):
                     )
                     first_action = False
                 precise_sleep(max(1 / args.fps - (time.perf_counter() - step_start), 0))
+                timing.end_step(client.last_timing_info["chunk_complete"])
+        except BaseException as error:
+            end_reason = type(error).__name__
+            raise
         finally:
-            if robot.is_connected:
-                robot.disconnect()
+            try:
+                if timing is not None:
+                    timing.report(finalized=True, end_reason=end_reason)
+            finally:
+                if robot.is_connected:
+                    robot.disconnect()
 
 
 def main():

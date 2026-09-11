@@ -38,14 +38,19 @@ Set the intervention mode in `pi_05_inference.bash` before each rollout:
 
 Restart the server once to load this implementation. Afterward, these settings
 take effect on the next rollout without restarting the server or reloading
-weights. Conflicting modes are rejected. Automatic strategies keep the existing
-first-two-chunk intervention behavior. Manual guidance uses the existing debugger
+weights. Conflicting modes are rejected. Automatic strategies intervene when
+`MMD² + 5 * diversity > 1.2082`, using zero for undefined MMD. Each trajectory
+chunk records the score, threshold decision, configured setting, and whether
+guidance occurred. Manual guidance uses the existing debugger
 interaction in the server terminal. Candidate trajectories remain recorded in
 all modes.
 
 The first automatic intervention rollout initializes the VLM client and requires
-the existing VLM service at `http://127.0.0.1:35959`; later strategy switches reuse
-that client. The effective mode is logged and saved in trajectory metadata,
+the VLM service supplied for each invocation:
+`bash pi_05_inference.bash RECORD_NAME http://HOST:PORT`. The second argument is
+required and is forwarded as `--vlm_server_url`; there is no default URL. Supply only the base URL; the client adds `/health` and
+`/v1/chat/completions`. Later strategy switches reuse that client; changing the
+URL creates a new client on the next automatic intervention rollout. The effective mode is logged and saved in trajectory metadata,
 including `rollout_config.intervention_settings`. Editing Python source or other
 module constants such as `USE_WRIST` still requires restarting the server.
 
@@ -108,3 +113,7 @@ need LeRobot dataset recording or local policy execution, using its original
 That async client calls `predict_action_chunk` directly. This branch's server
 instead uses the existing synchronous `predict_action` / `select_action` path
 to preserve TACO candidate selection, guidance, and trajectory recording.
+
+Set `--vlm_model_name` in `pi_05_inference.bash` to the model identifier returned
+by the VLM service’s `/v1/models` endpoint. Changing the model name recreates the
+VLM client on the next automatic intervention rollout without reloading policy weights.

@@ -79,6 +79,70 @@ settings plus per-chunk task text; recordings made before this addition lack the
 full `rollout_config` and `launch` metadata. These settings and recorded inputs
 support offline action replay, not reconstruction of physical scene dynamics.
 
+## Rollout and chunk timing
+
+New rollouts save durations in seconds, measured with monotonic
+`time.perf_counter()`. Wall-clock `*_at_unix` values are provided for correlation
+with other logs; durations never subtract clocks from different processes.
+
+Each `chunks/<index>/timing` group contains server-side measurements:
+
+| Dataset | Measured interval |
+| --- | --- |
+| `base_inference_s` | Generate the 15 unperturbed candidates, including input preparation and recorded CPU snapshots; measured on every chunk |
+| `guidance_selection_s` | Guidance selection/construction, including VLM calls, prompt images, ensemble blending/visualization, and manual debugger waits |
+| `guided_inference_s` | Additional model inference using the selected guidance, including its CPU snapshot |
+| `intervention_s` | `guidance_selection_s + guided_inference_s`; zero when no guidance branch runs |
+| `policy_generation_s` | Whole server chunk-generation path, including base inference, candidate selection, initial HDF5 recording, and any intervention; ends before the execution-decision HDF5 write |
+
+Sampling snapshots copy outputs to CPU, so inference durations include waiting
+for those GPU results. They measure wall time, not isolated GPU kernel time.
+For inference without interventions, use `base_inference_s`, or filter chunks
+with `intervention/occurred=False` and use `policy_generation_s` for their whole
+generation path. These intervals overlap; do not sum all timing fields.
+
+The `pi05_inference.py` client adds the following fields after a completed chunk
+or during graceful shutdown of a partially executed chunk:
+
+| Dataset | Measured interval |
+| --- | --- |
+| `chunk_total_s` | First observation request through the last completed loop wait (or partial-chunk shutdown), including inference and intervention latency |
+| `execution_s` | First `send_action` start through that same endpoint, including subsequent observations, queued-action RPCs, command sends, and scheduled waits; excludes initial chunk-generation latency |
+| `command_send_s` | Sum of time inside `robot.send_action` calls that returned successfully |
+| `observation_s`, `inference_rpc_s` | Accumulated successful observation and policy-request times, respectively |
+| `executed_actions`, `execution_complete` | Number of successfully returned command sends and whether all queued actions plus their loop waits completed |
+
+`execution_s` measures the command loop, not an independently detected physical
+settling time. `started_at_unix`, `execution_started_at_unix`, and `ended_at_unix`
+record its boundaries. On an interrupted operation, total durations include the
+wait until shutdown while successful-call subtotals may exclude the interrupted call.
+
+The visualizer displays `Execution + inference` on every chunk as
+`execution_s + base_inference_s`. It excludes intervention time and shows
+`Intervention time` separately from `intervention_s` only when guidance occurred.
+Durations use three decimal places in seconds. Missing measurements show
+`not recorded`, invalid values show `N/A`, and partial execution is labeled.
+
+Root `/timing/elapsed_s` measures the rollout from after robot connection and
+policy reset to loop termination, excluding setup/model loading and robot
+disconnect/history saving. It includes observation, inference, interventions,
+execution, scheduled waits, and timing-report overhead. The root group also
+records start/end/update timestamps, `executed_actions`, `completed_chunks`,
+`finalized`, and an `end_reason` attribute. It is updated after every completed
+chunk and finalized at normal duration/step limits or graceful interruption.
+Chunk reports are written by the server; the client never opens the HDF5 file.
+
+An interrupted RPC, lost connection, or abrupt process kill can prevent the
+final report; prior completed-chunk reports remain readable. Treat missing
+timings or `finalized=False` as incomplete, not as a final rollout duration.
+The persistent server accepts final timing reports after returning a rollout
+stop or error. Restart the policy server once when installing this change.
+
+Old trajectory logs only had a chunk timestamp, and Deoxys history has command
+timestamps without inference/intervention labels. These detailed durations
+cannot be reliably reconstructed from those timestamps alone. Existing HDF5
+files are not backfilled by this change.
+
 ## Online overlap MMD
 
 Every new chunk compares all 15 unperturbed candidate sequences with the previous
@@ -118,9 +182,8 @@ gamma changes the distance scale each chunk; fixed gamma gives a common kernel
 for absolute comparisons. The existing 15 samples add no inference calls, but
 provide a noisier distribution estimate than larger batches.
 [Sentinel Appendix A.1](https://arxiv.org/pdf/2410.04640) discusses bandwidth and
-sample-count selection. Any future intervention threshold needs separate
-calibration on your rollouts; the papers' numerical thresholds do not transfer
-automatically. This addition only measures and logs consistency.
+sample-count selection. Intervention thresholds need calibration on your
+rollouts; the papers' numerical thresholds do not transfer automatically.
 
 Scores are written before execution to
 `chunks/000001/temporal_mmd/mmd2` in `trajectories_<demo>.h5` and logged to the
@@ -130,6 +193,47 @@ The first chunk after startup or reset, and chunks with no prediction overlap,
 have `NaN` for score and effective gamma. Identical constant samples yield zero
 with adaptive gamma falling back to 1. The requested setting is recorded in
 `metadata_json.policy_config.mmd_gamma` and each group's `gamma_setting` attribute.
+
+## Intervention trigger and recording
+
+Automatic PIVOT, primitive, and ensemble guidance runs when
+`MMD² + 5 * diversity > 1.2082`, replacing the first-two-chunks schedule.
+An undefined MMD (first chunk, reset, or no overlap) contributes zero to this
+score; the saved MMD itself remains NaN. The first chunk is not forced to
+intervene. Both metrics exclude gripper. These constants were calibrated on
+20 rollouts with 50-step execution and produced a pooled intervention rate of
+25.08%; changing the horizon or metric gamma settings requires recalibration.
+
+The recorder uses the explicit execution horizon (`n_action_steps`) to align
+overlaps, even when recorded candidates retain the full prediction horizon.
+Each chunk records `execution_horizon` as an attribute and an `intervention`
+group containing datasets `score`, `diversity_weight`, `threshold`, `triggered`,
+and `occurred`. The group's `setting` attribute is `none`, `PIVOT`, `primitive`,
+`ensemble`, `manual`, or `vis_spreads`.
+
+For automatic interventions, this group also records the selected `pivot_color`
+and/or `primitive` as attributes. These identify the choices actually used for
+guidance, including the fallback primitive if the VLM returned an invalid label.
+The visualization displays the PIVOT color, the primitive name, or both for EVE
+beneath the scores. Older intervention records without these attributes display
+`not recorded` for the missing choices.
+
+`triggered` records whether the score exceeds the threshold, even when automatic
+interventions are disabled. `occurred` becomes true only after sampling with
+non-None guidance completes and the resulting action chunk is recorded for
+execution. It does not confirm physical execution of every action. Check
+`execution_ready` to distinguish completed decisions from interrupted chunks.
+Manual guidance and spread visualization retain their existing behavior;
+visualization alone is not counted as a guidance intervention.
+
+PIVOT, primitive, and EVE guidance spans the full predicted action chunk
+(`chunk_size=100`), independently of `n_action_steps`. EVE blends and plots
+the full guidance trajectories. Reconstruction guidance requires exactly
+`chunk_size` timesteps and pads only action dimensions, so every predicted
+timestep receives a guidance residual. The primitive generator currently
+produces 100 steps. Only the first `n_action_steps` of the guided prediction
+are queued for execution. The overlap-based intervention trigger still depends
+on `n_action_steps`; changing execution length can change when guidance triggers.
 
 ## Candidate diversity
 
@@ -170,6 +274,12 @@ not backfilled automatically. Earlier recordings using `-mean(k(current,current)
 retain their original values; their saved `estimator` attribute identifies that formula.
 Earlier diversity scores that included the gripper also retain their saved values;
 new recordings identify its exclusion in `source` and record `action_dim=7`.
+
+The visualizer also shows `Intervention: <type>` in an amber badge when the
+chunk's saved `intervention/occurred` flag is true. Ensemble guidance is labeled
+`EVE`; other types retain their names. Chunks with no intervention show `none`,
+and older logs without this flag show `not recorded`. A threshold trigger alone
+does not produce a badge.
 
 ## Replaying a chunk
 

@@ -13,6 +13,9 @@ import tempfile
 
 import numpy as np
 
+INTERVENTION_DIVERSITY_WEIGHT = 5.0
+INTERVENTION_THRESHOLD = 1.2082
+
 
 def _rbf_kernel(*samples, gamma):
     """Build the pooled RBF kernel and resolve fixed or adaptive gamma."""
@@ -120,7 +123,8 @@ def _defer_sigint():
 class TrajectoryRecorder:
     """Close the file after every chunk so normal exit and SIGINT need no final save.
 
-    Actions are normalized policy outputs, shaped [samples, n_action_steps, action_dim].
+    Candidate actions are normalized policy outputs, shaped [samples, horizon, action_dim].
+    The candidate horizon may exceed the number of queued execution steps.
     Observations retain their policy-input layout and values (images are normally
     RGB float32 [batch, channels, height, width] in [0, 1], before model resizing).
     """
@@ -157,9 +161,11 @@ class TrajectoryRecorder:
         """Discard the overlap when an episode resets, including a partially executed chunk."""
         self._previous_overlap = None
         self._previous_record_index = -1
+        self.intervention_triggered = False
 
     def append(self, *, chunk_index, original, perturbed, selected_indices, observations, task, perturb_std,
-               sampling_calls=(), raw_observation=None, perturbation_noise=None):
+               sampling_calls=(), raw_observation=None, perturbation_noise=None, intervention_setting="none",
+               execution_horizon=None):
         """Persist one complete candidate set before guidance or action execution."""
         # Selection returns a tensor on the policy's device during CUDA inference.
         if hasattr(selected_indices, "detach"):
@@ -168,7 +174,7 @@ class TrajectoryRecorder:
         # Use all unperturbed candidates, excluding padding and the final Franka gripper dimension.
         full_actions = sampling_calls[0]["full_output"] if sampling_calls else original
         full_actions = np.asarray(full_actions)[..., :original.shape[-1] - 1]
-        exec_horizon = original.shape[1]
+        exec_horizon = original.shape[1] if execution_horizon is None else execution_horizon
         overlap_steps = full_actions.shape[1] - exec_horizon
         diversity_steps = overlap_steps if overlap_steps > 0 else full_actions.shape[1]
         current = full_actions[:, :diversity_steps].reshape(len(full_actions), -1)
@@ -177,6 +183,9 @@ class TrajectoryRecorder:
         if previous is not None:
             score, gamma = compute_mmd_rbf(current, previous, self._mmd_gamma)
         diversity, diversity_gamma = compute_diversity_rbf(current, self._diversity_gamma)
+        # Missing overlap (including the first chunk) contributes zero MMD.
+        intervention_score = (0.0 if np.isnan(score) else score) + INTERVENTION_DIVERSITY_WEIGHT * diversity
+        intervention_triggered = bool(intervention_score > INTERVENTION_THRESHOLD)
         with _defer_sigint(), self._h5py.File(self.path, "a") as file:
             chunk = file["chunks"].create_group(f"{self._next_index:06d}")
             chunk.attrs["complete"] = False
@@ -185,6 +194,7 @@ class TrajectoryRecorder:
             chunk.attrs["task_json"] = json.dumps(task, default=str)
             chunk.attrs["perturb_std"] = perturb_std
             chunk.attrs["execution_ready"] = False
+            chunk.attrs["execution_horizon"] = exec_horizon
             for name, value in {
                 "original_actions": original,
                 "perturbed_actions": perturbed,
@@ -222,6 +232,14 @@ class TrajectoryRecorder:
                 "estimator": "1-mean(k(current,current)), including diagonals; higher means more diverse",
                 "source": "all unperturbed current candidates, overlap prefix or full horizon if no overlap, without padding or the final gripper dimension",
             })
+            _write_tree(chunk.create_group("intervention"), {
+                "score": intervention_score,
+                "diversity_weight": INTERVENTION_DIVERSITY_WEIGHT,
+                "threshold": INTERVENTION_THRESHOLD,
+                "triggered": intervention_triggered,
+                "occurred": False,
+                "setting": intervention_setting,
+            })
             chunk.attrs["complete"] = True
             record_index = self._next_index
             self._next_index += 1
@@ -230,12 +248,14 @@ class TrajectoryRecorder:
                 if overlap_steps > 0 else None
             )
             self._previous_record_index = record_index
+            self.intervention_triggered = intervention_triggered
         if np.isfinite(score):
             logging.info("Chunk %s temporal MMD²=%.6f (gamma=%.6g, overlap=%s)",
                          chunk_index, score, gamma, overlap_steps)
         return record_index
 
-    def record_execution(self, record_index, *, sampling_calls, actions, source):
+    def record_execution(self, record_index, *, sampling_calls, actions, source, intervention_occurred=False,
+                         intervention_details=None, timings=None):
         """Record guidance sampling and the normalized action chunk queued for execution."""
         with _defer_sigint(), self._h5py.File(self.path, "a") as file:
             chunk = file[f"chunks/{record_index:06d}"]
@@ -245,4 +265,22 @@ class TrajectoryRecorder:
                 _write_tree(sampling.create_group(f"{index:06d}"), call)
             chunk.create_dataset("queued_actions", data=as_numpy(actions), compression="lzf")
             chunk.attrs["execution_source"] = source
+            chunk["intervention/occurred"][()] = intervention_occurred
+            chunk["intervention"].attrs.update(intervention_details or {})
+            _write_tree(chunk.create_group("timing"), timings or {})
             chunk.attrs["execution_ready"] = True
+
+    def record_timing(self, *, record_index=None, chunk_timing=None, rollout_timing=None):
+        """Persist client-measured command-loop times, including partial final chunks."""
+        with _defer_sigint(), self._h5py.File(self.path, "a") as file:
+            groups = [(file.require_group("timing"), rollout_timing or {})]
+            if record_index is not None:
+                groups.append((file[f"chunks/{record_index:06d}"].require_group("timing"), chunk_timing or {}))
+            for group, values in groups:
+                for name, value in values.items():
+                    if isinstance(value, str):
+                        group.attrs[name] = value
+                    elif name in group:
+                        group[name][()] = value
+                    else:
+                        group.create_dataset(name, data=value)

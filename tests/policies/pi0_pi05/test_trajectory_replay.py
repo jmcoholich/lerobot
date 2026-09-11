@@ -19,7 +19,9 @@ import unittest
 from unittest.mock import Mock, patch
 
 import h5py
+import cv2
 import numpy as np
+from PIL import Image
 from sklearn.metrics.pairwise import cosine_similarity
 import torch
 
@@ -72,14 +74,15 @@ class TestTrajectoryReplay(unittest.TestCase):
             __file__=str(POLICY_DIR / "modelling_pi05_taco.py"),
             TrajectoryRecorder=recorder_module.TrajectoryRecorder,
             snapshot_processor=recorder_module.snapshot_processor,
-            VLMClient=Mock(),
+            VLMClient=Mock(side_effect=lambda **kwargs: SimpleNamespace(**kwargs)),
             deque=deque,
         )
         # Avoid model/hardware imports, but run the actual policy methods being changed.
         tree = ast.parse((POLICY_DIR / "modelling_pi05_taco.py").read_text())
         cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "PI05PolicyTaco")
         names = ("configure_interventions", "reset_rollout", "configure_replay_recording", "_ensure_trajectory_recorder", "capture_replay_observation",
-                 "_sample_trajectory_candidates", "predict_action_chunk", "select_action", "reset")
+                 "_sample_trajectory_candidates", "predict_action_chunk", "select_action", "reset",
+                 "pivot", "primitive_guidance", "action_ensemble")
         nodes = [node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name in names]
         nodes += [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "select_representative_trajectories"]
         exec(compile(ast.Module(body=nodes, type_ignores=[]), "policy_methods", "exec"), self.namespace)
@@ -112,8 +115,11 @@ class TestTrajectoryReplay(unittest.TestCase):
 
     def run_replay(self, guided=False):
         if guided:
-            self.policy.configure_interventions(interventions="PIVOT")
-            self.policy.pivot = lambda *args, actions, **kwargs: actions[:1]
+            self.policy.configure_interventions(interventions="PIVOT", vlm_server_url="http://127.0.0.1:35959")
+            def pivot(*args, actions, **kwargs):
+                self.policy._intervention_details["pivot_color"] = "Blue"
+                return actions[:1]
+            self.policy.pivot = pivot
         raw = {"observation.state": torch.arange(8, dtype=torch.float32)[None], "task": ["place blocks"]}
         self.policy.capture_replay_observation(raw, Mock(), Mock())
         expected_state = raw["observation.state"].clone()
@@ -126,7 +132,20 @@ class TestTrajectoryReplay(unittest.TestCase):
             self.assertEqual(chunk["sampling/000000/inputs/tokens"].dtype, np.dtype("int64"))
             np.testing.assert_array_equal(chunk["raw_observation/observation.state"], expected_state.numpy())
             self.assertEqual(len(chunk["sampling"]), 2 if guided else 1)
+            timings = chunk["timing"]
+            self.assertGreater(timings["base_inference_s"][()], 0.)
+            self.assertGreater(timings["policy_generation_s"][()], timings["base_inference_s"][()])
             if guided:
+                self.assertGreater(timings["intervention_s"][()], 0.)
+                self.assertAlmostEqual(timings["intervention_s"][()],
+                                       timings["guidance_selection_s"][()] + timings["guided_inference_s"][()])
+            else:
+                self.assertEqual(timings["intervention_s"][()], 0.)
+            self.assertEqual(chunk["intervention/occurred"][()], guided)
+            self.assertEqual(chunk["intervention"].attrs["setting"], "PIVOT" if guided else "none")
+            self.assertTrue(chunk["intervention/triggered"][()])
+            if guided:
+                self.assertEqual(chunk["intervention"].attrs["pivot_color"], "Blue")
                 self.assertIn("guidance_actions", chunk["sampling/000001/inputs"])
         torch.manual_seed(987654)
         self.policy.model.sample_noise = Mock(side_effect=AssertionError("Replay must use recorded noise"))
@@ -135,6 +154,79 @@ class TestTrajectoryReplay(unittest.TestCase):
 
     def test_unguided_replay_with_different_rng(self):
         self.run_replay()
+
+    def test_full_guidance_and_execution_horizons_for_all_strategies(self):
+        image = np.zeros((8, 8, 3), dtype=np.uint8)
+        render = Mock(return_value=(image, None))
+        self.namespace.update(
+            cv2=cv2, Image=Image, TRAJ_COLOR_NAMES=["Orange", "Blue"], color2idx=lambda color: 1,
+            visualize_trajectories_on_camera=render, get_vlm_output_dir=lambda: self.directory.name,
+            save_VLM_io=Mock(), get_guidance_action_from_text=Mock(return_value=torch.ones(1, 100, 8)),
+        )
+        self.policy.gen_pivot_text_prompt = Mock(return_value="")
+        self.policy.gen_primitive_text_prompt = Mock(return_value="")
+        for steps in (25, 50, 100):
+            for strategy in ("PIVOT", "primitive", "ensemble"):
+                with self.subTest(steps=steps, strategy=strategy):
+                    self.policy.config.n_action_steps = steps
+                    self.policy.reset()
+                    self.policy.count = 0
+                    self.policy.configure_interventions(interventions=strategy, vlm_server_url="http://test")
+                    self.policy.vlm_client.select_trajectories = lambda image, prompt, count: (
+                        "up" if count == 8 else "blue", "reasoning")
+                    recorder = recorder_module.TrajectoryRecorder({}, self.directory.name, demo_name="full_guidance")
+                    self.policy._trajectory_recorder = recorder
+                    render.reset_mock()
+                    with patch.object(recorder_module, "compute_diversity_rbf", return_value=(0.5, 0.063)), \
+                         patch("builtins.print"):
+                        executed = torch.stack([self.policy.select_action(self.batch) for _ in range(steps)], dim=1)
+                    self.assertEqual(executed.shape, (1, steps, 8))
+                    self.assertEqual(len(self.policy._action_queue), 0)
+                    with h5py.File(recorder.path, "r") as file:
+                        chunk = file["chunks/000000"]
+                        self.assertEqual(chunk["sampling/000001/inputs/guidance_actions"].shape, (1, 100, 8))
+                        self.assertEqual(chunk["sampling/000001/full_output"].shape, (1, 100, 32))
+                        self.assertEqual(chunk["queued_actions"].shape, (1, steps, 8))
+                        self.assertEqual(chunk["temporal_mmd/overlap_steps"][()], 100 - steps)
+                        self.assertTrue(chunk["intervention/occurred"][()])
+                    for call in render.call_args_list:
+                        self.assertEqual(call.args[1].shape[1], 100)
+                    replayed = replay_module.replay_trajectory_chunk(self.policy, recorder.path)
+                    torch.testing.assert_close(replayed, executed, rtol=0, atol=0)
+
+    def test_score_triggers_later_chunks_instead_of_first_two(self):
+        for strategy in ("PIVOT", "primitive", "ensemble", "none"):
+            with self.subTest(strategy=strategy):
+                self.policy.reset()
+                self.policy.count = 0
+                self.policy.configure_interventions(interventions=strategy, vlm_server_url="http://127.0.0.1:35959")
+                recorder = recorder_module.TrajectoryRecorder({}, self.directory.name, demo_name="trigger")
+                self.policy._trajectory_recorder = recorder
+                self.policy.pivot = Mock(return_value=torch.ones(1, 50, 8))
+                self.policy.primitive_guidance = Mock(return_value=torch.ones(1, 50, 8))
+                self.policy.action_ensemble = Mock(return_value=torch.ones(1, 50, 8))
+                # First chunk: no MMD, below threshold. Second: exactly at threshold.
+                # Third: above threshold. Fourth: below, so the trigger must clear.
+                with patch.object(recorder_module, "compute_diversity_rbf", return_value=(0.2, 0.063)), \
+                     patch.object(recorder_module, "compute_mmd_rbf", side_effect=[(0.2082, 1.), (0.4, 1.), (0.1, 1.)]):
+                    for _ in range(200):
+                        self.policy.select_action(self.batch)
+                with h5py.File(recorder.path, "r") as file:
+                    for index in range(4):
+                        chunk = file[f"chunks/{index:06d}"]
+                        metrics = chunk["intervention"]
+                        occurred = index == 2 and strategy != "none"
+                        self.assertEqual(metrics["triggered"][()], index == 2)
+                        self.assertEqual(metrics["occurred"][()], occurred)
+                        self.assertEqual(metrics.attrs["setting"], strategy)
+                        self.assertEqual(metrics["threshold"][()], 1.2082)
+                        self.assertEqual(metrics["diversity_weight"][()], 5.)
+                        self.assertEqual(len(chunk["sampling"]), 2 if occurred else 1)
+                    self.assertEqual(file["chunks/000000/intervention/score"][()], 1.)
+                    self.assertEqual(file["chunks/000001/intervention/score"][()], 1.2082)
+                recorder.intervention_triggered = True
+                recorder.reset()
+                self.assertFalse(recorder.intervention_triggered)
 
     def test_rollout_stops_after_at_most_800_actions(self):
         for horizon, expected_chunks in ((100, 8), (50, 16), (25, 32), (30, 26)):
@@ -204,14 +296,16 @@ class TestTrajectoryReplay(unittest.TestCase):
         ]
         for strategy, manual, spreads in modes:
             self.policy.reset_rollout()
-            settings = {"interventions": strategy, "manual_guidance": manual, "vis_spreads": spreads}
+            settings = {"interventions": strategy, "manual_guidance": manual, "vis_spreads": spreads,
+                        "vlm_server_url": "http://127.0.0.1:35959"}
             self.policy.configure_replay_recording({"intervention_settings": settings})
             self.assertIs(self.policy.model, model)
             self.assertEqual(self.policy.interventions, False if strategy == "none" else strategy)
             self.assertEqual(self.policy.manual_guidance, manual)
             self.assertEqual(self.policy.vis_spreads, spreads)
             self.assertEqual(self.policy._rollout_config["intervention_settings"], settings)
-        self.namespace["VLMClient"].assert_called_once_with(server_url="http://127.0.0.1:35959")
+        self.namespace["VLMClient"].assert_called_once_with(
+            server_url="http://127.0.0.1:35959", model_name="Qwen/Qwen2.5-VL-72B-Instruct")
 
     def test_conflicting_intervention_settings_fail_before_vlm_initialization(self):
         for settings in (
@@ -292,6 +386,44 @@ class TestTrajectoryReplay(unittest.TestCase):
                 self.assertIn(filename, file["artifacts/source"])
         with self.assertRaises(RuntimeError):
             self.policy.configure_replay_recording(config)
+
+
+class TestFullHorizonReconstructionGuidance(unittest.TestCase):
+    def setUp(self):
+        tree = ast.parse((POLICY_DIR / "modelling_pi05_taco.py").read_text())
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "PI05Pytorch")
+        method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "sample_actions")
+        namespace = dict(torch=torch, Tensor=torch.Tensor, F=torch.nn.functional, copy=copy,
+                         make_att_2d_masks=lambda pad, att: torch.ones(1, 1, 1, dtype=torch.bool))
+        exec(compile(ast.Module(body=[method], type_ignores=[]), "sampler_method", "exec"), namespace)
+        self.sample = namespace["sample_actions"]
+        self.noise = torch.ones(1, 100, 32)
+        self.model = SimpleNamespace(
+            config=SimpleNamespace(chunk_size=100, num_inference_steps=1),
+            embed_prefix=Mock(return_value=(torch.zeros(1, 1, 1), torch.ones(1, 1, dtype=torch.bool), torch.ones(1))),
+            _prepare_attention_masks_4d=lambda mask: mask,
+            paligemma_with_expert=SimpleNamespace(
+                paligemma=SimpleNamespace(language_model=SimpleNamespace(config=SimpleNamespace())),
+                forward=Mock(return_value=(None, None)),
+            ),
+            denoise_step=Mock(return_value=torch.zeros_like(self.noise)),
+        )
+
+    def test_guidance_affects_every_predicted_step_independent_of_execution(self):
+        for steps in (25, 50, 100):
+            self.model.config.n_action_steps = steps
+            result = self.sample(self.model, [], [], torch.zeros(1, 1), None,
+                                 noise=self.noise.clone(), guidance_actions=torch.zeros(1, 100, 8))
+            # One integration step cancels the residual on all 100 real action steps.
+            torch.testing.assert_close(result[..., :8], torch.zeros(1, 100, 8))
+            torch.testing.assert_close(result[..., 8:], self.noise[..., 8:])
+
+    def test_short_long_and_malformed_guidance_are_rejected_before_inference(self):
+        for shape in ((1, 0, 8), (1, 25, 8), (1, 50, 8), (1, 99, 8), (1, 101, 8), (100, 8)):
+            with self.subTest(shape=shape), self.assertRaisesRegex(ValueError, "full prediction horizon"):
+                self.sample(self.model, [], [], torch.zeros(1, 1), None,
+                            noise=self.noise, guidance_actions=torch.zeros(shape))
+        self.model.embed_prefix.assert_not_called()
 
 
 if __name__ == "__main__":

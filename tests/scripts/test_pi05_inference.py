@@ -17,7 +17,7 @@ class TestInferenceClient(unittest.TestCase):
                 """
 import sys
 from lerobot.scripts.pi05_inference import parse_args
-parse_args(['--policy.path=/checkpoint', '--task=test', '--policy.dtype=bfloat16'])
+parse_args(['--policy.path=/checkpoint', '--task=test', '--vlm_server_url=http://test-vlm:12345', '--policy.dtype=bfloat16'])
 for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.processor',
              'lerobot.datasets.lerobot_dataset', 'lerobot.scripts.lerobot_record'):
     assert name not in sys.modules, name
@@ -32,6 +32,7 @@ for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.proces
             [
                 "--policy.path=/not/a/local/checkpoint",
                 "--task=place blocks",
+                "--vlm_server_url=http://test-vlm:12345",
                 "--robot.record=trial",
                 "--policy.dtype=bfloat16",
                 "--policy.n_action_steps=25",
@@ -47,12 +48,16 @@ for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.proces
         )
         self.assertEqual(args.record, "trial")
 
+    def test_missing_vlm_url_is_rejected(self):
+        with self.assertRaises(SystemExit), patch("sys.stderr"):
+            inference.parse_args(["--policy.path=/checkpoint", "--task=test"])
+
     def test_unknown_arguments_are_rejected(self):
         with self.assertRaises(SystemExit), patch("sys.stderr"):
             inference.parse_args(["--policy.path=/checkpoint", "--task=test", "--dataset.video=false"])
 
     def test_intervention_arguments_and_conflicts(self):
-        base = ["--policy.path=/checkpoint", "--task=test"]
+        base = ["--policy.path=/checkpoint", "--task=test", "--vlm_server_url=http://test-vlm:12345"]
         for strategy in ("none", "PIVOT", "primitive", "ensemble"):
             args = inference.parse_args(base + [f"--interventions={strategy}"])
             self.assertEqual(args.interventions, strategy)
@@ -79,6 +84,8 @@ for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.proces
                 "--task=test",
                 "--robot.record=trial",
                 "--interventions=ensemble",
+                "--vlm_server_url=http://chitti:55953",
+                "--vlm_model_name=test-vlm-model",
             ]
         )
         for failure in (SystemExit(0), ConnectionError("disconnected"), KeyboardInterrupt()):
@@ -88,6 +95,7 @@ for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.proces
                 robot.observation_features = {"joint": float}
                 robot.get_observation.return_value = {"joint": 0.5}
                 client = Mock()
+                client.last_timing_info = {"record_index": 0, "chunk_complete": False}
                 action = {"x": 0.1, "gripper": 0.2}
                 client.predict_action.side_effect = [action, failure]
                 with (
@@ -100,14 +108,20 @@ for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.proces
                 robot.send_action.assert_called_once_with(action)
                 robot.disconnect.assert_called_once()
                 client.close.assert_called_once()
-                client.predict_action.assert_called_with({"joint": 0.5}, "test", robot, raw_observation=True)
-                config = client.request.call_args.kwargs
+                client.predict_action.assert_called_with({"joint": 0.5}, "test", robot, raw_observation=True, with_timing=True)
+                config = next(call.kwargs for call in client.request.call_args_list if call.args[0] == "configure_robot")
+                report = client.request.call_args.kwargs
+                self.assertTrue(report["rollout_timing"]["finalized"])
+                self.assertEqual(report["chunk_timing"]["executed_actions"], 1)
+                self.assertFalse(report["chunk_timing"]["execution_complete"])
                 self.assertEqual(config["rollout_config"]["robot"]["record"], "trial")
                 self.assertEqual(config["rollout_config"]["dataset"]["single_task"], "test")
                 self.assertEqual(
                     config["rollout_config"]["intervention_settings"],
                     {
                         "interventions": "ensemble",
+                        "vlm_server_url": "http://chitti:55953",
+                        "vlm_model_name": "test-vlm-model",
                         "manual_guidance": False,
                         "vis_spreads": False,
                     },

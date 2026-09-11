@@ -1,9 +1,16 @@
+# Usage: bash pi_05_inference.bash [record_name] [none|PIVOT|primitive|ensemble|eve]
 RECORD_NAME="${1:-last_recording}"
+INTERVENTIONS="${2:-none}"
+if [[ "${INTERVENTIONS}" == "eve" ]]; then
+  INTERVENTIONS="ensemble"
+fi
 export LEROBOT_DEMO_NAME="${RECORD_NAME}"
 
 export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH}"
 
 # MMD gamma: median (adaptive), max_eig, or a positive fixed number.
+# --interventions options (case-sensitive): none, PIVOT, primitive, ensemble.
+# ssh -N -f -L localhost:35959:localhost:35959 -J jcoholich3@sky1.cc.gatech.edu jcoholich3@perseverance.cc.gatech.edu
 python src/lerobot/scripts/pi05_inference.py \
   --policy_server="${LEROBOT_POLICY_SERVER:-/tmp/lerobot-pi05-${UID}.sock}" \
   --robot.type=franka \
@@ -12,7 +19,9 @@ python src/lerobot/scripts/pi05_inference.py \
   --robot.record="${RECORD_NAME}" \
   --task="place both blocks in the bin" \
   --duration=30000 \
-  --interventions=none \
+  --interventions="${INTERVENTIONS}" \
+  --vlm_server_url="http://127.0.0.1:55953" \
+  --vlm_model_name="Qwen/Qwen3-VL-8B-Instruct" \
   --manual_guidance=false \
   --vis_spreads=false \
   --policy.dtype=bfloat16 \

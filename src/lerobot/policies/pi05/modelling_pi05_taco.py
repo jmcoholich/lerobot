@@ -63,13 +63,6 @@ from safetensors.torch import load_file
 from .vlm_client import VLMClient
 from PIL import Image, ImageDraw, ImageFont
 # ssh -N -f -L localhost:35959:localhost:35959 -J jcoholich3@sky1.cc.gatech.edu jcoholich3@perseverance.cc.gatech.edu
-VLLM_SERVERS=(
-    "http://perseverance.cc.gatech.edu:35959",
-    "http://clippy.cc.gatech.edu:56749",
-    "http://shakey.cc.gatech.edu:53727",
-    "http://cheetah.cc.gatech.edu:33793",
-    "http://ig-88.cc.gatech.edu:56151",
-)
 
 # TRAJ_COLORS = (
 #     (0, 0, 255),    # Red
@@ -121,16 +114,14 @@ TRAJ_COLOR_NAMES = (
     "Cyan",
 )
 
-VLM_IO_OUTPUT_DIR = "vlm_io"
+def get_vlm_output_dir() -> Path:
+    """Resolve the current rollout's demonstration directory at save time."""
+    demo_name = os.environ.get("LEROBOT_DEMO_NAME") or "last_recording"
+    if demo_name in (".", "..") or Path(demo_name).name != demo_name:
+        raise ValueError("Demo name must be a single directory name")
+    return Path("/home/jeremiah/openteach/extracted_data") / f"demonstration_{demo_name}"
 
-# clear the dir if it exists
-vlm_io_path = Path(VLM_IO_OUTPUT_DIR)
-if vlm_io_path.exists() and vlm_io_path.is_dir():
-    for file in vlm_io_path.iterdir():
-        if file.is_file():
-            file.unlink()
-
-MAX_STEPS = 800
+MAX_STEPS = 1000
 # Defaults for local inference; the server applies per-rollout settings from the launcher.
 INTERVENTIONS = False
 # INTERVENTIONS = "PIVOT"
@@ -184,11 +175,11 @@ def save_VLM_io(
     generated_text: str,
     count: int,
     prompt_text: str | None = None,
-    output_dir: str | Path = VLM_IO_OUTPUT_DIR,
+    output_dir: str | Path | None = None,
     suffix=None,
 ) -> Path:
     """Save an image with VLM prompt text above and output text below."""
-    output_path = Path(output_dir)
+    output_path = Path(output_dir) if output_dir is not None else get_vlm_output_dir()
     output_path.mkdir(parents=True, exist_ok=True)
 
     image = Image.new("RGB", (pil_img.width + 280, pil_img.height), (0, 0, 0))
@@ -953,6 +944,8 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
         device = tokens.device
         use_guidance = guidance_actions is not None and guidance_scale > 0.0
         if use_guidance:
+            if guidance_actions.ndim != 3 or guidance_actions.shape[1] != self.config.chunk_size:
+                raise ValueError("Guidance must have shape [batch, chunk_size, action_dim] and cover the full prediction horizon")
             guidance_actions = guidance_actions.to(device=device, dtype=torch.float32)
 
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(images, img_masks, tokens, masks)
@@ -1015,9 +1008,12 @@ class PI05Pytorch(nn.Module):  # see openpi `PI0Pytorch`
                 # Clean estimate: x_t - t*v_t  (maps from working model's x_t + (1-t)*v_t via t_pi05=1-t_work, v_pi05=-v_work)
                 t_coef = expanded_time.reshape(expanded_time.shape[0], 1, 1)
                 clean_x_t_hat = x_t - t_coef * v_t
-                residual = clean_x_t_hat[..., :guidance_actions.shape[-1]] - guidance_actions
+                guidance_dim = guidance_actions.shape[2]
+                if guidance_dim > clean_x_t_hat.shape[2]:
+                    raise ValueError("Guidance action dimensions exceed the model action dimensions")
+                residual = clean_x_t_hat[..., :guidance_dim] - guidance_actions
                 residual = F.pad(
-                    residual, (0, 24),
+                    residual, (0, clean_x_t_hat.shape[2] - guidance_dim),
                     mode="constant",
                     value=0.0,
                     ) # [bsz, H, A]
@@ -1265,6 +1261,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         self.model.to(config.device)
         self.count = 0
         self._trajectory_recorder = None
+        self._intervention_details = {}
         self._replay_sampling_calls = []
         self._raw_replay_observation = {}
         self._rollout_config = None
@@ -1536,6 +1533,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
     def configure_interventions(
         self, interventions=INTERVENTIONS, manual_guidance=MANUAL_GUIDANCE, vis_spreads=VIS_SPREADS,
+        vlm_server_url=None, vlm_model_name="Qwen/Qwen2.5-VL-72B-Instruct",
     ):
         """Apply rollout behavior without changing the model or its compiled functions."""
         if interventions == "none":
@@ -1546,8 +1544,14 @@ class PI05PolicyTaco(PreTrainedPolicy):
             raise ValueError("Choose only one of interventions, manual guidance, or spread visualization")
         if USE_WRIST and interventions in ("primitive", "ensemble"):
             raise ValueError("Primitive and ensemble interventions require USE_WRIST=False")
-        if interventions and self.vlm_client is None:
-            self.vlm_client = VLMClient(server_url="http://127.0.0.1:35959")
+        if interventions and (not vlm_server_url or not vlm_server_url.strip()):
+            raise ValueError("vlm_server_url must be supplied for automatic interventions")
+        if interventions and (
+            self.vlm_client is None
+            or self.vlm_client.server_url != vlm_server_url
+            or self.vlm_client.model_name != vlm_model_name
+        ):
+            self.vlm_client = VLMClient(server_url=vlm_server_url, model_name=vlm_model_name)
         self.interventions = interventions
         self.manual_guidance = manual_guidance
         self.vis_spreads = vis_spreads
@@ -1650,11 +1654,13 @@ class PI05PolicyTaco(PreTrainedPolicy):
         original_actions = self.predict_action_chunk(
             batch,
             num_samples=num_trajs * 3,
+            full_chunk=True,
             guidance_actions=None,
             guidance_scale=None,
             consistency_guidance=None,
         )
         sampling_done = time.perf_counter()
+        self._chunk_timings = {"base_inference_s": sampling_done - sampling_start}
         actions = original_actions.clone()
         perturbation_noise = torch.zeros_like(actions[:, 1:, :3])
         if TRAJ_STD_PERTURB > 0.0:
@@ -1678,6 +1684,9 @@ class PI05PolicyTaco(PreTrainedPolicy):
             perturbation_noise=perturbation_noise,
             sampling_calls=self._replay_sampling_calls,
             raw_observation=self._raw_replay_observation,
+            intervention_setting=("manual" if self.manual_guidance else "vis_spreads" if self.vis_spreads
+                                  else self.interventions or "none"),
+            execution_horizon=self.config.n_action_steps,
         )
         self._replay_sampling_calls = []
         if self.count == 0:
@@ -1714,13 +1723,18 @@ class PI05PolicyTaco(PreTrainedPolicy):
         if len(self._action_queue) == 0:
             if self.count >= MAX_STEPS // self.config.n_action_steps:
                 sys.exit(0)
-            intervention_period = 1
+            generation_start = time.perf_counter()
             # consistency_guidance_action = get_consistency_guidance(postprocessor=postprocessor, robot=robot)
             guidance_scale = 20.0
             print(f"\nGenerating action chunk number {self.count}")
+            self._chunk_timings = {}
             original_actions, candidate_actions = self._sample_trajectory_candidates(batch)
+            intervention_start = time.perf_counter()
+            guidance_selection_s = guided_inference_s = 0.0
             execution_source = "original_sample_0"
-            if (self.count == 0 or self.count == 1) and self.interventions and not (self.manual_guidance or self.vis_spreads):  # intervene
+            intervention_occurred = False
+            self._intervention_details = {}
+            if self.interventions and self._trajectory_recorder.intervention_triggered and not (self.manual_guidance or self.vis_spreads):
                 print(f"Intervention step...")
                 print(f"Intervention mode: {self.interventions}")
                 if self.interventions == "PIVOT":
@@ -1738,6 +1752,8 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     guidance_action = self.action_ensemble(pivot_guidance_action, primitive_guidance_action, batch, postprocessor, robot, save_imgs=True)
                 else:
                     raise RuntimeError
+                guidance_selection_s = time.perf_counter() - intervention_start
+                guided_start = time.perf_counter()
                 actions = self.predict_action_chunk(
                     batch,
                     num_samples=1,
@@ -1746,12 +1762,16 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     consistency_guidance=None,
                     )
                 execution_source = "last_sampling_call"
+                guided_inference_s = time.perf_counter() - guided_start
+                intervention_occurred = guidance_action is not None
             elif self.manual_guidance:
                 print(f"Manual guidance step...")
                 # Example of manual guidance: guide to move right
                 guidance_action = None
                 x = partial(get_guidance_action_from_text, postprocessor=postprocessor, robot=robot)
                 breakpoint()
+                guidance_selection_s = time.perf_counter() - intervention_start
+                guided_start = time.perf_counter()
                 actions = self.predict_action_chunk(
                     batch,
                     num_samples=1,
@@ -1760,6 +1780,8 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     consistency_guidance=None,
                     )
                 execution_source = "last_sampling_call"
+                guided_inference_s = time.perf_counter() - guided_start
+                intervention_occurred = guidance_action is not None
             elif self.vis_spreads:
                 print("Visualization spread step...")
                 actions = candidate_actions
@@ -1796,11 +1818,21 @@ class PI05PolicyTaco(PreTrainedPolicy):
             #     save_imgs=True,
             #     )
             # actions = actions[0:1]
+            actions = actions[:, :self.config.n_action_steps]
             self._trajectory_recorder.record_execution(
                 self._active_trajectory_index,
                 sampling_calls=self._replay_sampling_calls,
                 actions=actions,
                 source=execution_source,
+                intervention_occurred=intervention_occurred,
+                intervention_details=self._intervention_details,
+                timings={
+                    **self._chunk_timings,
+                    "guidance_selection_s": guidance_selection_s,
+                    "guided_inference_s": guided_inference_s,
+                    "intervention_s": guidance_selection_s + guided_inference_s,
+                    "policy_generation_s": time.perf_counter() - generation_start,
+                },
             )
             self._replay_sampling_calls = []
             self.count += 1
@@ -1818,8 +1850,9 @@ class PI05PolicyTaco(PreTrainedPolicy):
         gripper_guidance: bool = True,
         consistency_guidance: torch.FloatTensor = None,
         noise: Tensor | None = None,
+        full_chunk: bool = False,
     ) -> Tensor:
-        """Predict a chunk of actions given environment observations."""
+        """Predict actions, optionally retaining the full model horizon for visualization."""
         self.eval()
         if consistency_guidance is not None and guidance_actions is not None:
             raise RuntimeError("Currently don't support both consistency guidance and regular guidance")
@@ -1874,7 +1907,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
         original_action_dim = self.config.output_features[ACTION].shape[0]
         actions = actions[..., :original_action_dim]
 
-        return actions[:, :self.config.n_action_steps]
+        return actions if full_chunk else actions[:, :self.config.n_action_steps]
 
     @torch.no_grad()
     def predict_action_chunk_and_get_feature(self, batch: dict[str, Tensor], noise: Tensor = None) -> Tensor:
@@ -1957,7 +1990,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                 postprocessor=postprocessor,
                 name=f"ensemble_action_{self.count}",
                 save_imgs=True,
-                save_dir=VLM_IO_OUTPUT_DIR,
+                save_dir=get_vlm_output_dir(),
                 )
         return combined_action
 
@@ -2008,6 +2041,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             print(f"Unknown primitive '{chosen_label}', defaulting to '{primitive_labels[0]}'")
             chosen_idx = 0
         print(f"Selected primitive number {chosen_idx} label: {primitive_labels[chosen_idx]}")
+        self._intervention_details["primitive"] = primitive_labels[chosen_idx]
         print(f"Reasoning: {generated_text}")
         save_VLM_io(pil_img, generated_text, self.count, prompt_text=text_prompt, suffix="primitive")
         guidance_action = primitive_actions[chosen_idx: chosen_idx + 1]
@@ -2038,6 +2072,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             num_trajs,
             )
         traj_idx = color2idx(chosen_color)
+        self._intervention_details["pivot_color"] = TRAJ_COLOR_NAMES[traj_idx]
         print(f"Selected action number {traj_idx} color: {chosen_color}")
         print(f"Reasoning: {generated_text}")
         save_VLM_io(pil_img, generated_text, self.count, prompt_text=text_prompt, suffix="pivot")
@@ -2075,17 +2110,19 @@ def visualize_trajectories_on_camera(
         image_np = np.pad(image_np, ((padding, padding), (padding, padding), (0, 0)), mode='constant', constant_values=0)
         if "front" in img_key:
             extrinsic, intrinsic = apriltag2cam(padding=padding)
-            line_thickness = 1
+            line_thickness = 2
             draw_arrow_head = False
             downsample = trajectory_stride
         else: # wrist cam
             extrinsic, intrinsic = get_wrist_cam_mats(robot, padding=padding)
-            line_thickness = 2
+            line_thickness = 3
             draw_arrow_head = True
             downsample = 5
         for i in range(action.shape[0]):
             traj_color = TRAJ_COLORS[i % len(TRAJ_COLORS)]
-            points_2D, depths = project_3d_to_2d(action[i, ::downsample, :3], extrinsic, intrinsic)
+            # Include the last timestep even when the plotting stride does not land on it.
+            plot_indices = np.unique(np.r_[np.arange(0, action.shape[1], downsample), action.shape[1] - 1])
+            points_2D, depths = project_3d_to_2d(action[i, plot_indices, :3], extrinsic, intrinsic)
             draw_lines(points_2D, image_np, depths > 0, traj_color, i==0, line_thickness=line_thickness, draw_arrow_head=draw_arrow_head)
         # Add legend with color names
         legend_y = 30

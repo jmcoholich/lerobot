@@ -41,7 +41,7 @@ class VLMClient:
             print(f"Successfully connected to VLM server at {server_url}")
         except requests.exceptions.RequestException as e:
             print(f"Warning: Could not connect to VLM server at {health_url}: {e}")
-            raise RuntimeError
+            raise RuntimeError(f"VLM health check failed at {health_url}: {e}") from e
 
     def _pil_to_base64(self, image: Image.Image) -> str:
         """Converts a PIL Image to a base64 encoded string."""
@@ -66,12 +66,12 @@ class VLMClient:
         num_trajectories: int,
         max_new_tokens: int = 1024,
         timeout: int = 60
-    ) -> tuple[Tuple[int, int], str]:
+    ) -> tuple[str, str]:
         """
-        Send an annotated image to the VLM and get trajectory selections for both arms.
+        Send an annotated image to the VLM and get a trajectory color or primitive label.
 
         Returns:
-            tuple: ((idx_left, idx_right), text_response)
+            tuple: (chosen_label, text_response)
         """
         user_content = [
             {"type": "text", "text": prompt_text},
@@ -110,8 +110,12 @@ class VLMClient:
             return chosen_color, generated_text
 
         except Exception as e:
-            print(f"VLM Request failed: {e}. Is the model type correct?")
-            return (0, 0), str(e)
+            response = getattr(e, "response", None)
+            detail = f" Response body: {response.text[:2000]}" if response is not None else ""
+            raise RuntimeError(
+                f"VLM trajectory selection failed at {self.endpoint} "
+                f"(model={self.model_name!r}): {e}.{detail}"
+            ) from e
 
     def _extract_chosen_primitives(self, response_text: str) -> dict:
         """

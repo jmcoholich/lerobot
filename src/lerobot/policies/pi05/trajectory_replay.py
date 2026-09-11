@@ -69,6 +69,8 @@ def replay_trajectory_chunk(policy, path, chunk_index=0, *, device=None, rtol=1e
             queued = outputs[-1][:, :horizon, :action_dim]
         else:
             raise ValueError(f"Unknown execution source: {source}")
+        # Candidate recordings may retain more steps than were queued for execution.
+        queued = queued[:, :chunk["queued_actions"].shape[1]]
         torch.testing.assert_close(queued, torch.from_numpy(chunk["queued_actions"][()]), rtol=rtol, atol=atol)
         return queued
 

@@ -22,14 +22,20 @@ class RemotePolicyClient:
     def __init__(self, address):
         try:
             self.connection = Client(address, family="AF_UNIX")
+            self.connection_usable = True
         except OSError as error:
             raise ConnectionError(
                 f"Cannot connect to {address}. Start bash pi_05_policy_server.bash before running inference"
             ) from error
 
     def request(self, operation, **kwargs):
-        self.connection.send((operation, kwargs))
-        status, result = self.connection.recv()
+        try:
+            self.connection.send((operation, kwargs))
+            status, result = self.connection.recv()
+        except BaseException:
+            # An interrupted receive may leave an unread response on the socket.
+            self.connection_usable = False
+            raise
         if status == "stop":
             raise SystemExit(result)
         if status == "error":
@@ -49,7 +55,7 @@ class RemotePolicyClient:
     def reset(self):
         self.request("reset")
 
-    def predict_action(self, observation, task, robot, *, raw_observation=False):
+    def predict_action(self, observation, task, robot, *, raw_observation=False, with_timing=False):
         # TACO only reads these Franka poses; hardware stays in the recorder process.
         robot_state = None
         if robot.robot_type == "franka":
@@ -68,8 +74,12 @@ class RemotePolicyClient:
             task=task,
             robot_type=robot.robot_type,
             robot=robot_state,
+            **({"return_timing": True} if raw_observation and with_timing else {}),
         )
         if raw_observation:
+            if with_timing:
+                self.last_timing_info = action["timing"]
+                return action["action"]
             return action
         import torch
 
@@ -99,12 +109,23 @@ class PolicySession:
         self.configure(policy_cfg, SimpleNamespace(features=features, stats={}), {}, rollout_config, environment)
         self.robot_features = features
 
-    def predict_robot(self, observation, **kwargs):
+    def predict_robot(self, observation, return_timing=False, **kwargs):
         from lerobot.datasets.utils import build_dataset_frame
 
         observation = build_dataset_frame(self.robot_features, observation, "observation")
         action = self.predict(observation=observation, **kwargs).squeeze(0)
-        return dict(zip(self.robot_features["action"]["names"], action.tolist(), strict=True))
+        action = dict(zip(self.robot_features["action"]["names"], action.tolist(), strict=True))
+        if return_timing:
+            return {"action": action, "timing": {
+                "record_index": self.policy._active_trajectory_index,
+                "chunk_complete": not self.policy._action_queue,
+            }}
+        return action
+
+    def record_timing(self, **kwargs):
+        recorder = getattr(self.policy, "_trajectory_recorder", None)
+        if recorder is not None:
+            recorder.record_timing(**kwargs)
 
     def configure(self, policy_cfg, dataset_meta, rename_map, rollout_config, environment):
         import torch
@@ -182,6 +203,8 @@ def serve_connection(connection, session):
                 raise RuntimeError("Configure the policy before requesting inference")
             elif operation == "reset":
                 result = session.reset()
+            elif operation == "record_timing":
+                result = session.record_timing(**kwargs)
             elif operation in ("predict", "predict_robot"):
                 result = getattr(session, operation)(**kwargs)
             else:
@@ -190,11 +213,11 @@ def serve_connection(connection, session):
         except SystemExit as error:
             # TACO's step limit ends the rollout, not the persistent server.
             connection.send(("stop", error.code))
-            return
+            continue  # Allow the client to finalize rollout timing before disconnecting.
         except Exception as error:
             logging.exception("Policy request failed")
             connection.send(("error", f"{type(error).__name__}: {error}"))
-            return
+            continue
         connection.send(response)
 
 

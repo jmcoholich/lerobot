@@ -123,6 +123,7 @@ def verify(log_path):
                 queued = outputs[-1][:, :horizon, :action_dim]
             else:
                 raise ValueError(source)
+            queued = queued[:, :chunk["queued_actions"].shape[1]]
             for name, value in (("original_actions", original), ("perturbed_actions", perturbed),
                                 ("selected_indices", indices), ("selected_actions", selected), ("queued_actions", queued)):
                 checks[name] = comparison(value, chunk[name][()])
