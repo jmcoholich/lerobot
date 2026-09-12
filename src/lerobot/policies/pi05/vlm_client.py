@@ -50,13 +50,27 @@ class VLMClient:
         return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
     def _extract_chosen_color(self, text_output):
-        last_line = text_output.split('\n')[-2]
-        if not "chosen_trajectory" in last_line:
-            raise RuntimeError("VLM output invalid")
-        color = last_line.split(":")[-1]
-        color = color.replace('"', '').strip()
-        return color
-
+        if not isinstance(text_output, str) or not text_output.strip():
+            raise RuntimeError("VLM output invalid: expected text containing a JSON selection")
+        decoder = json.JSONDecoder()
+        selections = []
+        # Decode complete JSON objects, allowing Markdown fences or surrounding prose.
+        position = 0
+        while position < len(text_output):
+            start = text_output.find("{", position)
+            if start < 0:
+                break
+            try:
+                data, end = decoder.raw_decode(text_output, start)
+            except json.JSONDecodeError:
+                position = start + 1
+                continue
+            position = end
+            if isinstance(data, dict) and "chosen_trajectory" in data:
+                selections.append(data["chosen_trajectory"])
+        if len(selections) != 1 or not isinstance(selections[0], str) or not selections[0].strip():
+            raise RuntimeError("VLM output invalid: expected exactly one nonempty chosen_trajectory string")
+        return selections[0].strip()
 
 
     def select_trajectories(
@@ -104,8 +118,11 @@ class VLMClient:
             result = response.json()
             generated_text = result["choices"][0]["message"]["content"]
 
-            chosen_color = self._extract_chosen_color(generated_text)
             self.last_text_responses = [generated_text]
+            try:
+                chosen_color = self._extract_chosen_color(generated_text)
+            except RuntimeError as error:
+                raise RuntimeError(f"{error}. VLM response: {generated_text!r}") from error
 
             return chosen_color, generated_text
 
