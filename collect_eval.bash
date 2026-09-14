@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-    echo "Usage: $0 <record_name> [none|base|PIVOT|pivot|primitive|ensemble|eve]"
-    echo "Example: $0 test_eve_7 eve"
+if [[ $# -lt 1 || $# -gt 3 ]]; then
+    echo "Usage: $0 <record_name> [none|base|PIVOT|pivot|primitive|ensemble|eve] [parallel|serial]"
+    echo "Example: $0 test_eve_7 eve serial"
     exit 1
 fi
 
@@ -10,6 +10,18 @@ set -m
 
 RECORD_NAME="$1"
 INTERVENTIONS="${2:-none}"
+INFERENCE_ARGS=("${RECORD_NAME}" "${INTERVENTIONS}")
+if [[ $# -eq 3 ]]; then
+    ENSEMBLE_REQUEST_MODE="$3"
+    if [[ "${ENSEMBLE_REQUEST_MODE}" == "sequential" ]]; then
+        ENSEMBLE_REQUEST_MODE="serial"
+    fi
+    if [[ "${ENSEMBLE_REQUEST_MODE}" != "parallel" && "${ENSEMBLE_REQUEST_MODE}" != "serial" ]]; then
+        echo "Ensemble request mode must be parallel or serial" >&2
+        exit 2
+    fi
+    INFERENCE_ARGS+=("${ENSEMBLE_REQUEST_MODE}")
+fi
 OPENTEACH_DATA_DIR="/home/jeremiah/openteach/extracted_data"
 export LEROBOT_TRAJECTORY_DIR="${LEROBOT_TRAJECTORY_DIR:-${OPENTEACH_DATA_DIR}/demonstration_${RECORD_NAME}}"
 DATA_PID=""
@@ -49,7 +61,7 @@ DATA_PID=$!
 sleep 0.2
 
 echo "Starting pi_05_inference.bash..."
-bash pi_05_inference.bash "${RECORD_NAME}" "${INTERVENTIONS}" &
+bash pi_05_inference.bash "${INFERENCE_ARGS[@]}" &
 INFERENCE_PID=$!
 
 echo "Started:"

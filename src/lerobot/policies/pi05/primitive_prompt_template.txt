@@ -8,6 +8,7 @@ The task is to: <TASK_DESCRIPTION/>
 - "Left": translate the gripper to the left
 - "Right": translate the gripper to the right
 - "Up": translate the gripper vertically upwards
+- "Down": translate the gripper vertically downwards by approximately 5 cm (half the other translation distances)
 - "Forward": move the gripper forward towards the camera
 - "Backward": move the gripper backward away from the camera
 - "Rotate CW": rotate the gripper clockwise about the vertical z-axis

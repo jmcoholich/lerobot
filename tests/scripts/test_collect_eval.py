@@ -1,6 +1,7 @@
 """Exercise launcher shutdown with stub children; never start inference or hardware."""
 
 import os
+import json
 from pathlib import Path
 import signal
 import subprocess
@@ -12,6 +13,7 @@ import unittest
 LAUNCHER = Path(__file__).resolve().parents[2] / "collect_eval.bash"
 STUB = '''#!/usr/bin/python3
 import os
+import json
 from pathlib import Path
 import signal
 import subprocess
@@ -22,6 +24,7 @@ signal.signal(signal.SIGINT, signal.default_int_handler)
 role = "worker" if sys.argv[1] == "worker" else ("data" if sys.argv[1] == "-c" else "inference")
 directory = Path(os.environ["STUB_DIR"])
 (directory / (role + ".pid")).write_text(str(os.getpid()))
+(directory / (role + ".args")).write_text(json.dumps(sys.argv[1:]))
 worker = None
 try:
     if role == "data":
@@ -44,7 +47,7 @@ except KeyboardInterrupt:
 
 
 class TestCollectEval(unittest.TestCase):
-    def run_launcher(self, exit_role="", exit_status=0, interrupt=False):
+    def run_launcher(self, exit_role="", exit_status=0, interrupt=False, mode=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             stub = root / "bash"
@@ -59,7 +62,7 @@ class TestCollectEval(unittest.TestCase):
             }
             # Absolute /bin/bash runs the launcher; its child bash calls use our stub.
             process = subprocess.Popen(
-                ["/bin/bash", str(LAUNCHER), "test_shutdown"],
+                ["/bin/bash", str(LAUNCHER), "test_shutdown", "eve"] + ([mode] if mode else []),
                 cwd=root,
                 env=env,
                 stdout=subprocess.PIPE,
@@ -76,6 +79,10 @@ class TestCollectEval(unittest.TestCase):
                     process.send_signal(signal.SIGINT)
                 output, _ = process.communicate(timeout=10)
                 self.assertEqual(process.returncode, 130 if interrupt else exit_status, output)
+                expected = ["pi_05_inference.bash", "test_shutdown", "eve"]
+                if mode:
+                    expected.append("serial" if mode == "sequential" else mode)
+                self.assertEqual(json.loads((root / "inference.args").read_text()), expected)
                 for role in ("data", "inference", "worker"):
                     if role != exit_role:
                         self.assertTrue((root / f"{role}.sigint").exists(), f"{role} missed SIGINT: {output}")
@@ -101,6 +108,20 @@ class TestCollectEval(unittest.TestCase):
 
     def test_ctrl_c_waits_for_both_process_groups(self):
         self.run_launcher(interrupt=True)
+
+    def test_request_mode_is_forwarded(self):
+        for mode in ("serial", "parallel", "sequential"):
+            with self.subTest(mode=mode):
+                self.run_launcher(exit_role="inference", mode=mode)
+
+    def test_invalid_mode_fails_before_starting_children(self):
+        result = subprocess.run(
+            ["/bin/bash", str(LAUNCHER), "test", "eve", "invalid"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("parallel or serial", result.stderr)
+        self.assertNotIn("Starting", result.stdout)
 
 
 if __name__ == "__main__":

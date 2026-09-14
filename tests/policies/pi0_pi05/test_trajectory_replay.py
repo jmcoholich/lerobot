@@ -74,7 +74,7 @@ class TestTrajectoryReplay(unittest.TestCase):
             __file__=str(POLICY_DIR / "modelling_pi05_taco.py"),
             TrajectoryRecorder=recorder_module.TrajectoryRecorder,
             snapshot_processor=recorder_module.snapshot_processor,
-            VLMClient=Mock(side_effect=lambda **kwargs: SimpleNamespace(**kwargs)),
+            VLMClient=Mock(side_effect=lambda **kwargs: SimpleNamespace(last_response_metrics=None, **kwargs)),
             deque=deque,
         )
         # Avoid model/hardware imports, but run the actual policy methods being changed.
@@ -82,9 +82,12 @@ class TestTrajectoryReplay(unittest.TestCase):
         cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "PI05PolicyTaco")
         names = ("configure_interventions", "reset_rollout", "configure_replay_recording", "_ensure_trajectory_recorder", "capture_replay_observation",
                  "_sample_trajectory_candidates", "predict_action_chunk", "select_action", "reset",
-                 "pivot", "primitive_guidance", "action_ensemble")
+                 "pivot", "primitive_guidance", "action_ensemble", "ensemble_guidance",
+                 "_prepare_pivot_guidance", "_finish_pivot_guidance",
+                 "_prepare_primitive_guidance", "_finish_primitive_guidance")
         nodes = [node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name in names]
-        nodes += [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "select_representative_trajectories"]
+        nodes += [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                  and node.name in ("select_representative_trajectories", "extract_vlm_task")]
         exec(compile(ast.Module(body=nodes, type_ignores=[]), "policy_methods", "exec"), self.namespace)
         stub_cls = type("Policy", (), {name: self.namespace[name] for name in names})
         self.policy = stub_cls()
@@ -156,6 +159,8 @@ class TestTrajectoryReplay(unittest.TestCase):
         self.run_replay()
 
     def test_full_guidance_and_execution_horizons_for_all_strategies(self):
+        task = "place the pink block, then the blue block in the bin"
+        self.batch["task"] = [f"Task: {task}, State: 1 2 3;\nAction: "]
         image = np.zeros((8, 8, 3), dtype=np.uint8)
         render = Mock(return_value=(image, None))
         self.namespace.update(
@@ -163,8 +168,8 @@ class TestTrajectoryReplay(unittest.TestCase):
             visualize_trajectories_on_camera=render, get_vlm_output_dir=lambda: self.directory.name,
             save_VLM_io=Mock(), get_guidance_action_from_text=Mock(return_value=torch.ones(1, 100, 8)),
         )
-        self.policy.gen_pivot_text_prompt = Mock(return_value="")
-        self.policy.gen_primitive_text_prompt = Mock(return_value="")
+        self.policy.gen_pivot_text_prompt = Mock(side_effect=lambda task, count: task)
+        self.policy.gen_primitive_text_prompt = Mock(side_effect=lambda task: task)
         for steps in (25, 50, 100):
             for strategy in ("PIVOT", "primitive", "ensemble"):
                 with self.subTest(steps=steps, strategy=strategy):
@@ -172,14 +177,28 @@ class TestTrajectoryReplay(unittest.TestCase):
                     self.policy.reset()
                     self.policy.count = 0
                     self.policy.configure_interventions(interventions=strategy, vlm_server_url="http://test")
-                    self.policy.vlm_client.select_trajectories = lambda image, prompt, count: (
-                        "up" if count == 7 else "blue", "reasoning")
+                    self.policy.vlm_client.select_trajectories = Mock(side_effect=lambda image, prompt, count: (
+                        "down" if count == 8 else "blue", "reasoning"))
+                    self.policy.vlm_client.select_trajectories_batch = lambda requests, mode: [
+                        (*self.policy.vlm_client.select_trajectories(*request),
+                         {"latency_s": 2.0 if request[2] == 8 else 1.0,
+                          "batch_latency_s": 2.5, "request_mode": mode}) for request in requests
+                    ]
                     recorder = recorder_module.TrajectoryRecorder({}, self.directory.name, demo_name="full_guidance")
                     self.policy._trajectory_recorder = recorder
                     render.reset_mock()
                     with patch.object(recorder_module, "compute_diversity_rbf", return_value=(0.5, 0.063)), \
                          patch("builtins.print"):
                         executed = torch.stack([self.policy.select_action(self.batch) for _ in range(steps)], dim=1)
+                    for call in self.policy.vlm_client.select_trajectories.call_args_list:
+                        self.assertEqual(call.args[1], task)
+                    for call in self.namespace["save_VLM_io"].call_args_list:
+                        self.assertEqual(call.kwargs["prompt_text"], task)
+                    if strategy == "ensemble":
+                        plots = self.namespace["save_VLM_io"].call_args_list[-2:]
+                        self.assertEqual([call.kwargs["suffix"] for call in plots], ["pivot", "primitive"])
+                        self.assertEqual([call.kwargs["response_metrics"]["latency_s"] for call in plots], [1.0, 2.0])
+                        self.assertEqual([call.kwargs["response_metrics"]["batch_latency_s"] for call in plots], [2.5, 2.5])
                     self.assertEqual(executed.shape, (1, steps, 8))
                     self.assertEqual(len(self.policy._action_queue), 0)
                     with h5py.File(recorder.path, "r") as file:
@@ -191,9 +210,23 @@ class TestTrajectoryReplay(unittest.TestCase):
                         self.assertTrue(chunk["intervention/occurred"][()])
                     for call in render.call_args_list:
                         self.assertEqual(call.args[1].shape[1], 100)
-                    self.assertNotIn("down", [call.args[0] for call in self.namespace["get_guidance_action_from_text"].call_args_list])
+                    if strategy in ("primitive", "ensemble"):
+                        self.assertIn("down", [call.args[0] for call in self.namespace["get_guidance_action_from_text"].call_args_list])
+                        self.assertEqual(self.policy._intervention_details["primitive"], "down")
                     replayed = replay_module.replay_trajectory_chunk(self.policy, recorder.path)
                     torch.testing.assert_close(replayed, executed, rtol=0, atol=0)
+
+    def test_vlm_task_preserves_punctuation_and_removes_only_final_state_suffix(self):
+        extract = self.namespace["extract_vlm_task"]
+        for task in (
+            "place the pink block, then the blue block in the bin",
+            "Order: pink, blue, then return home",
+            "read the label, State: ready, then place the block",
+            "place blocks",
+        ):
+            with self.subTest(task=task):
+                self.assertEqual(extract(f"Task: {task}, State: 0 1 2;\nAction: "), task)
+                self.assertEqual(extract(task), task)
 
     def test_score_triggers_later_chunks_instead_of_first_two(self):
         for strategy in ("PIVOT", "primitive", "ensemble", "none"):
@@ -206,6 +239,7 @@ class TestTrajectoryReplay(unittest.TestCase):
                 self.policy.pivot = Mock(return_value=torch.ones(1, 50, 8))
                 self.policy.primitive_guidance = Mock(return_value=torch.ones(1, 50, 8))
                 self.policy.action_ensemble = Mock(return_value=torch.ones(1, 50, 8))
+                self.policy.ensemble_guidance = Mock(return_value=torch.ones(1, 50, 8))
                 # First chunk: no MMD, below threshold. Second: exactly at threshold.
                 # Third: above threshold. Fourth: below, so the trigger must clear.
                 with patch.object(recorder_module, "compute_diversity_rbf", return_value=(0.2, 0.063)), \
@@ -311,6 +345,7 @@ class TestTrajectoryReplay(unittest.TestCase):
     def test_conflicting_intervention_settings_fail_before_vlm_initialization(self):
         for settings in (
             {"interventions": "invalid"},
+            {"ensemble_request_mode": "invalid"},
             {"interventions": "PIVOT", "manual_guidance": True},
             {"interventions": "primitive", "vis_spreads": True},
             {"manual_guidance": True, "vis_spreads": True},
@@ -319,6 +354,14 @@ class TestTrajectoryReplay(unittest.TestCase):
                 self.policy.configure_interventions(**settings)
         self.namespace["VLMClient"].assert_not_called()
         self.assertFalse(self.policy.interventions)
+
+    def test_request_mode_changes_without_recreating_vlm_client(self):
+        for mode in ("serial", "parallel"):
+            self.policy.configure_interventions(
+                interventions="ensemble", vlm_server_url="http://test", ensemble_request_mode=mode,
+            )
+            self.assertEqual(self.policy.ensemble_request_mode, mode)
+        self.namespace["VLMClient"].assert_called_once()
 
     def test_reset_rollout_clears_recording_state(self):
         model = self.policy.model

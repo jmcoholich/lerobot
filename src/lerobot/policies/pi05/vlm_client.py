@@ -1,13 +1,18 @@
 import base64
 import json
-import re
-import requests
-from io import BytesIO
-from typing import List, Optional, Tuple
-import torch
-from PIL import Image
-import random
 import logging
+import os
+import re
+import time
+from concurrent.futures import ThreadPoolExecutor
+from copy import copy
+from io import BytesIO
+from typing import List, Tuple
+from urllib.parse import urlsplit
+
+import requests
+from PIL import Image
+
 log = logging.getLogger(__name__)
 
 
@@ -24,16 +29,34 @@ class VLMClient:
         Args:
             server_url: The base URL of the OpenAI-compatible VLM server.
             model_name: The model name identifier.
+
+        OpenAI requests read OPENAI_API_KEY from this process's environment.
+        With persistent inference, set it before starting the policy server.
         """
         self.server_url = server_url
-        self.endpoint = f"{server_url}/v1/chat/completions"
+        base_url = server_url.rstrip('/').removesuffix('/v1')
+        self.endpoint = f"{base_url}/v1/chat/completions"
         self.model_name = model_name
+        self.is_openai = urlsplit(base_url).hostname == "api.openai.com"
+        self.headers = {"Content-Type": "application/json"}
+        if self.is_openai:
+            if urlsplit(base_url).scheme != "https":
+                raise ValueError("OpenAI requests require https://api.openai.com")
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            if not api_key:
+                raise ValueError("Set OPENAI_API_KEY in the environment before starting the policy server")
+            self.headers["Authorization"] = f"Bearer {api_key}"
 
         # Store intermediate text responses
         self.last_text_responses = []
+        self.last_response_metrics = None
 
-        # Health check
-        health_url = server_url.rstrip('/') + "/health"
+        # OpenAI has no local-serving /health endpoint. Authentication is
+        # validated by the first completion request.
+        if self.is_openai:
+            return
+
+        health_url = base_url + "/health"
         try:
             health_response = requests.get(health_url, timeout=5)
             health_response.raise_for_status()
@@ -43,11 +66,75 @@ class VLMClient:
             print(f"Warning: Could not connect to VLM server at {health_url}: {e}")
             raise RuntimeError(f"VLM health check failed at {health_url}: {e}") from e
 
+    def _sampling_params(self) -> dict:
+        """Return model-specific options to merge into the request payload."""
+        if self.is_openai:
+            # Use provider defaults: some GPT reasoning models do not accept
+            # temperature=0.0. Qwen chat-template options are local-only.
+            return {}
+        n = self.model_name.lower()
+        if "qwen3.6" in n or "qwen3.8" in n or "a3b" in n:
+            # Disable thinking so steering answers arrive in content without
+            # exhausting the token budget on reasoning. chat_template_kwargs
+            # is a top-level payload key, not a nested sampling parameter.
+            return {
+                "temperature": 0.0,
+                "chat_template_kwargs": {"enable_thinking": False},
+            }
+        return {"temperature": 0.0}
+
+    def _generation_params(self, max_new_tokens: int) -> dict:
+        token_key = "max_completion_tokens" if self.is_openai else "max_tokens"
+        return {token_key: max_new_tokens, **self._sampling_params()}
+
+    def _post_completion(self, payload: dict, timeout: int) -> dict:
+        """Time the full HTTP response and retain API-reported token usage for plots."""
+        self.last_response_metrics = None
+        start = time.perf_counter()
+        response = requests.post(self.endpoint, json=payload, headers=self.headers, timeout=timeout)
+        response.raise_for_status()
+        result = response.json()
+        latency_s = time.perf_counter() - start
+        model = result.get("model") or self.model_name
+        usage = result.get("usage") or {}
+        self.last_response_metrics = {
+            "model": model,
+            "latency_s": latency_s,
+            "usage": usage,
+        }
+        return result
+
     def _pil_to_base64(self, image: Image.Image) -> str:
         """Converts a PIL Image to a base64 encoded string."""
         buffered = BytesIO()
         image.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+    def select_trajectories_batch(self, queries: list[tuple], mode: str = "parallel") -> list[tuple]:
+        """Send queries serially or in parallel, returning (label, text, metrics) in input order."""
+        if mode not in ("parallel", "serial"):
+            raise ValueError("Request mode must be parallel or serial")
+        def select(request):
+            # Each worker owns its response state; headers/config are read-only.
+            client = copy(self)
+            label, text = client.select_trajectories(*request)
+            return label, text, client.last_response_metrics
+
+        self.last_response_metrics = None
+        self.last_text_responses = []
+        start = time.perf_counter()
+        if mode == "parallel":
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [executor.submit(select, request) for request in queries]
+                results = [future.result() for future in futures]
+        else:
+            results = [select(request) for request in queries]
+        batch_latency_s = time.perf_counter() - start
+        for _, _, metrics in results:
+            metrics["batch_latency_s"] = batch_latency_s
+            metrics["request_mode"] = mode
+        self.last_text_responses = [text for _, text, _ in results]
+        return results
 
     def _extract_chosen_color(self, text_output):
         if not isinstance(text_output, str) or not text_output.strip():
@@ -103,19 +190,11 @@ class VLMClient:
                 {"role": "system", "content": "You are an expert AI controller for a tabletop manipulation task."},
                 {"role": "user", "content": user_content}
             ],
-            "max_tokens": max_new_tokens,
-            "temperature": 0.0,
+            **self._generation_params(max_new_tokens),
         }
 
         try:
-            response = requests.post(
-                self.endpoint,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=timeout
-            )
-            response.raise_for_status()
-            result = response.json()
+            result = self._post_completion(payload, timeout)
             generated_text = result["choices"][0]["message"]["content"]
 
             self.last_text_responses = [generated_text]
@@ -238,19 +317,11 @@ class VLMClient:
                 {"role": "system", "content": "You are an expert robot policy advisor specializing in dual-arm coordination."},
                 {"role": "user", "content": user_content}
             ],
-            "max_tokens": max_new_tokens,
-            "temperature": 0.0,
+            **self._generation_params(max_new_tokens),
         }
 
         try:
-            response = requests.post(
-                self.endpoint,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=timeout
-            )
-            response.raise_for_status()
-            result = response.json()
+            result = self._post_completion(payload, timeout)
             generated_text = result["choices"][0]["message"]["content"]
 
             extracted_data = self._extract_chosen_primitives(generated_text)

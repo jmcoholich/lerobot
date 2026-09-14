@@ -170,6 +170,14 @@ def format_small_number_word(value: int) -> str:
     return number_words.get(value, str(value))
 
 
+def extract_vlm_task(prompt: str) -> str:
+    """Remove the PI05 task/state wrapper without truncating task punctuation."""
+    task = prompt.strip()
+    if task.startswith("Task:"):
+        task = task.removeprefix("Task:").rsplit(", State:", 1)[0]
+    return task.strip()
+
+
 def save_VLM_io(
     pil_img: Image.Image,
     generated_text: str,
@@ -177,6 +185,7 @@ def save_VLM_io(
     prompt_text: str | None = None,
     output_dir: str | Path | None = None,
     suffix=None,
+    response_metrics: dict | None = None,
 ) -> Path:
     """Save an image with VLM prompt text above and output text below."""
     output_path = Path(output_dir) if output_dir is not None else get_vlm_output_dir()
@@ -214,6 +223,25 @@ def save_VLM_io(
     prompt_lines = _wrap_text(prompt_combined)
 
     output_header = f"Count: {count}"
+    if response_metrics is not None:
+        latency = response_metrics.get("latency_s")
+        usage = response_metrics.get("usage") or {}
+        input_tokens = usage.get("prompt_tokens")
+        output_tokens = usage.get("completion_tokens")
+        reasoning_tokens = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+        latency_text = f"{latency:.2f} s" if latency is not None else "unavailable"
+        output_header += (
+            f"\nModel: {response_metrics.get('model', 'unknown')}"
+            f"\nFull response latency: {latency_text}"
+            f"\nInput tokens: {input_tokens if input_tokens is not None else 'unavailable'}"
+            f"\nOutput tokens: {output_tokens if output_tokens is not None else 'unavailable'}"
+            f"\nReasoning tokens (included in output): {reasoning_tokens if reasoning_tokens is not None else 'unavailable'}"
+        )
+        if response_metrics.get("batch_latency_s") is not None:
+            output_header += (
+                f"\nBoth {response_metrics['request_mode']} calls latency: "
+                f"{response_metrics['batch_latency_s']:.2f} s"
+            )
     output_body = generated_text.strip() if generated_text else ""
     output_combined = output_header if not output_body else f"{output_header}\n{output_body}"
     output_lines = _wrap_text(output_combined)
@@ -1534,8 +1562,11 @@ class PI05PolicyTaco(PreTrainedPolicy):
     def configure_interventions(
         self, interventions=INTERVENTIONS, manual_guidance=MANUAL_GUIDANCE, vis_spreads=VIS_SPREADS,
         vlm_server_url=None, vlm_model_name="Qwen/Qwen2.5-VL-72B-Instruct",
+        ensemble_request_mode="parallel",
     ):
         """Apply rollout behavior without changing the model or its compiled functions."""
+        if ensemble_request_mode not in ("parallel", "serial"):
+            raise ValueError("ensemble_request_mode must be parallel or serial")
         if interventions == "none":
             interventions = False
         if interventions not in (False, "PIVOT", "primitive", "ensemble"):
@@ -1555,8 +1586,9 @@ class PI05PolicyTaco(PreTrainedPolicy):
         self.interventions = interventions
         self.manual_guidance = manual_guidance
         self.vis_spreads = vis_spreads
-        logging.info("Rollout interventions=%s, manual_guidance=%s, vis_spreads=%s",
-                     interventions, manual_guidance, vis_spreads)
+        self.ensemble_request_mode = ensemble_request_mode
+        logging.info("Rollout interventions=%s, manual_guidance=%s, vis_spreads=%s, ensemble_request_mode=%s",
+                     interventions, manual_guidance, vis_spreads, ensemble_request_mode)
 
     def reset_rollout(self):
         """Start a fresh server rollout while retaining model weights."""
@@ -1747,9 +1779,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                 elif self.interventions == "ensemble":
                     assert not USE_WRIST
                     print("Running ensemble guidance (pivot + primitive + fusion)...")
-                    pivot_guidance_action = self.pivot(batch, postprocessor, robot, save_imgs=False, actions=candidate_actions)
-                    primitive_guidance_action = self.primitive_guidance(batch, postprocessor, robot, save_imgs=False)
-                    guidance_action = self.action_ensemble(pivot_guidance_action, primitive_guidance_action, batch, postprocessor, robot, save_imgs=True)
+                    guidance_action = self.ensemble_guidance(batch, postprocessor, robot, candidate_actions)
                 else:
                     raise RuntimeError
                 guidance_selection_s = time.perf_counter() - intervention_start
@@ -1976,7 +2006,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
         return loss, loss_dict
 
-    def action_ensemble(self, action1, action2, batch, postprocessor, robot, action1_weight=0.7, save_imgs=False):
+    def action_ensemble(self, action1, action2, batch, postprocessor, robot, action1_weight=0.5, save_imgs=False):
         assert action1.shape[0] == 1
         assert action2.shape[0] == 1
         action2_weight = 1.0 - action1_weight
@@ -1996,9 +2026,14 @@ class PI05PolicyTaco(PreTrainedPolicy):
 
     def primitive_guidance(self, batch, postprocessor, robot, save_imgs=False):
         """Prompt the VLM to select from pre-defined primitives"""
+        prepared = self._prepare_primitive_guidance(batch, postprocessor, robot)
+        image, prompt, labels, _ = prepared
+        response = self.vlm_client.select_trajectories(image, prompt, len(labels))
+        return self._finish_primitive_guidance(batch, prepared, response, self.vlm_client.last_response_metrics)
+
+    def _prepare_primitive_guidance(self, batch, postprocessor, robot):
         primitive_labels = [
-            "left", "right", "up",
-            # "down",  # Disabled: can drive the robot into the table.
+            "left", "right", "up", "down",
             "forward", "backward", "rotate_cw", "rotate_ccw",
         ]
         primitive_actions = torch.cat(
@@ -2012,7 +2047,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             ],
             dim=0,
         )
-        task = batch['task'][0].split(',')[0].split(':')[1].strip()
+        task = extract_vlm_task(batch['task'][0])
         text_prompt = self.gen_primitive_text_prompt(task)
         # front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
         #     batch,
@@ -2031,11 +2066,11 @@ class PI05PolicyTaco(PreTrainedPolicy):
             pil_img = Image.fromarray(cv2.cvtColor(wrist_prompt_img, cv2.COLOR_BGR2RGB))
         else:
             pil_img = Image.fromarray(cv2.cvtColor(front_prompt_img, cv2.COLOR_BGR2RGB))
-        chosen_label, generated_text = self.vlm_client.select_trajectories(
-            pil_img,
-            text_prompt,
-            len(primitive_labels),
-        )
+        return pil_img, text_prompt, primitive_labels, primitive_actions
+
+    def _finish_primitive_guidance(self, batch, prepared, response, metrics):
+        pil_img, text_prompt, primitive_labels, primitive_actions = prepared
+        chosen_label, generated_text = response
         chosen_label = str(chosen_label).strip().lower()
         if chosen_label in primitive_labels:
             chosen_idx = primitive_labels.index(chosen_label)
@@ -2045,11 +2080,20 @@ class PI05PolicyTaco(PreTrainedPolicy):
         print(f"Selected primitive number {chosen_idx} label: {primitive_labels[chosen_idx]}")
         self._intervention_details["primitive"] = primitive_labels[chosen_idx]
         print(f"Reasoning: {generated_text}")
-        save_VLM_io(pil_img, generated_text, self.count, prompt_text=text_prompt, suffix="primitive")
+        save_VLM_io(
+            pil_img, generated_text, self.count, prompt_text=text_prompt, suffix="primitive",
+            response_metrics=metrics,
+        )
         guidance_action = primitive_actions[chosen_idx: chosen_idx + 1]
         return guidance_action.to(batch['observation.state'].device)
 
     def pivot(self, batch, postprocessor, robot, save_imgs=False, actions=None):
+        prepared = self._prepare_pivot_guidance(batch, postprocessor, robot, save_imgs, actions)
+        image, prompt, actions = prepared
+        response = self.vlm_client.select_trajectories(image, prompt, actions.shape[0])
+        return self._finish_pivot_guidance(prepared, response, self.vlm_client.last_response_metrics)
+
+    def _prepare_pivot_guidance(self, batch, postprocessor, robot, save_imgs=False, actions=None):
         if actions is None:
             _, actions = self._sample_trajectory_candidates(batch)
         num_trajs = actions.shape[0]
@@ -2062,24 +2106,41 @@ class PI05PolicyTaco(PreTrainedPolicy):
             name=f"predicted_actions_{self.count}",
             save_imgs=save_imgs,
             )
-        task = batch['task'][0].split(',')[0].split(':')[1].strip()
+        task = extract_vlm_task(batch['task'][0])
         text_prompt = self.gen_pivot_text_prompt(task, num_trajs)
         if USE_WRIST:
             pil_img = Image.fromarray(cv2.cvtColor(wrist_prompt_img, cv2.COLOR_BGR2RGB))
         else:
             pil_img = Image.fromarray(cv2.cvtColor(front_prompt_img, cv2.COLOR_BGR2RGB))
-        chosen_color, generated_text = self.vlm_client.select_trajectories(
-            pil_img,
-            text_prompt,
-            num_trajs,
-            )
+        return pil_img, text_prompt, actions
+
+    def _finish_pivot_guidance(self, prepared, response, metrics):
+        pil_img, text_prompt, actions = prepared
+        chosen_color, generated_text = response
         traj_idx = color2idx(chosen_color)
         self._intervention_details["pivot_color"] = TRAJ_COLOR_NAMES[traj_idx]
         print(f"Selected action number {traj_idx} color: {chosen_color}")
         print(f"Reasoning: {generated_text}")
-        save_VLM_io(pil_img, generated_text, self.count, prompt_text=text_prompt, suffix="pivot")
+        save_VLM_io(
+            pil_img, generated_text, self.count, prompt_text=text_prompt, suffix="pivot",
+            response_metrics=metrics,
+        )
         guidance_action = actions[traj_idx: traj_idx + 1]
         return guidance_action
+
+    def ensemble_guidance(self, batch, postprocessor, robot, actions):
+        # Prepare tensors/images on the policy thread; only VLM calls run in workers.
+        pivot = self._prepare_pivot_guidance(batch, postprocessor, robot, actions=actions)
+        primitive = self._prepare_primitive_guidance(batch, postprocessor, robot)
+        pivot_result, primitive_result = self.vlm_client.select_trajectories_batch([
+            (pivot[0], pivot[1], pivot[2].shape[0]),
+            (primitive[0], primitive[1], len(primitive[2])),
+        ], mode=self.ensemble_request_mode)
+        pivot_action = self._finish_pivot_guidance(pivot, pivot_result[:2], pivot_result[2])
+        primitive_action = self._finish_primitive_guidance(
+            batch, primitive, primitive_result[:2], primitive_result[2],
+        )
+        return self.action_ensemble(pivot_action, primitive_action, batch, postprocessor, robot, save_imgs=True)
 
 
 def visualize_trajectories_on_camera(

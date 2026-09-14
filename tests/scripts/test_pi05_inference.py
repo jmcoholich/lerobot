@@ -61,6 +61,7 @@ for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.proces
         for strategy in ("none", "PIVOT", "primitive", "ensemble"):
             args = inference.parse_args(base + [f"--interventions={strategy}"])
             self.assertEqual(args.interventions, strategy)
+            self.assertEqual(args.ensemble_request_mode, "parallel")
             self.assertEqual(args.policy_overrides, [])
         args = inference.parse_args(base + ["--manual_guidance=true"])
         self.assertTrue(args.manual_guidance)
@@ -70,6 +71,7 @@ for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.proces
         self.assertFalse(args.manual_guidance)
         for invalid in (
             ["--interventions=unknown"],
+            ["--ensemble_request_mode=unknown"],
             ["--manual_guidance=invalid"],
             ["--interventions=PIVOT", "--manual_guidance=true"],
             ["--manual_guidance=true", "--vis_spreads=true"],
@@ -84,6 +86,7 @@ for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.proces
                 "--task=test",
                 "--robot.record=trial",
                 "--interventions=ensemble",
+                "--ensemble_request_mode=serial",
                 "--vlm_server_url=http://chitti:55953",
                 "--vlm_model_name=test-vlm-model",
             ]
@@ -120,6 +123,7 @@ for name in ('torch', 'torchvision', 'transformers', 'datasets', 'lerobot.proces
                     config["rollout_config"]["intervention_settings"],
                     {
                         "interventions": "ensemble",
+                        "ensemble_request_mode": "serial",
                         "vlm_server_url": "http://chitti:55953",
                         "vlm_model_name": "test-vlm-model",
                         "manual_guidance": False,

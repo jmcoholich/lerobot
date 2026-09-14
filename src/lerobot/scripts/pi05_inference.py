@@ -25,6 +25,8 @@ def parse_args(argv=None):
     parser.add_argument("--duration", type=float, default=30000)
     parser.add_argument("--fps", type=float, default=30)
     parser.add_argument("--interventions", choices=["none", "PIVOT", "primitive", "ensemble"], default="none")
+    parser.add_argument("--ensemble_request_mode", choices=["parallel", "serial"], default="parallel",
+                        help="How to send PIVOT and primitive requests in ensemble mode")
     parser.add_argument("--vlm_server_url", required=True,
                         help="Base URL of the OpenAI-compatible VLM service for interventions")
     parser.add_argument("--vlm_model_name", default="Qwen/Qwen2.5-VL-72B-Instruct",
@@ -73,6 +75,7 @@ def run(args):
                     "policy_server": args.policy_server,
                     "intervention_settings": {
                         "interventions": args.interventions,
+                        "ensemble_request_mode": args.ensemble_request_mode,
                         "vlm_server_url": args.vlm_server_url,
                         "vlm_model_name": args.vlm_model_name,
                         "manual_guidance": args.manual_guidance,

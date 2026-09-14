@@ -45,14 +45,79 @@ guidance occurred. Manual guidance uses the existing debugger
 interaction in the server terminal. Candidate trajectories remain recorded in
 all modes.
 
-The first automatic intervention rollout initializes the VLM client and requires
-the VLM service supplied for each invocation:
-`bash pi_05_inference.bash RECORD_NAME http://HOST:PORT`. The second argument is
-required and is forwarded as `--vlm_server_url`; there is no default URL. Supply only the base URL; the client adds `/health` and
-`/v1/chat/completions`. Later strategy switches reuse that client; changing the
+The first automatic intervention rollout initializes the VLM client. Set the VLM
+URL and model using `--vlm_server_url` and `--vlm_model_name` in `pi_05_inference.bash`.
+The launcher's second argument selects the strategy; the optional third argument
+selects ensemble request scheduling:
+
+```bash
+bash pi_05_inference.bash trial_01 ensemble parallel
+bash pi_05_inference.bash trial_02 ensemble serial
+bash collect_eval.bash trial_03 eve serial  # also run OpenTeach recording
+```
+
+The bash launcher currently defaults to serial; `sequential` is accepted as an
+alias for `serial`. `collect_eval.bash` forwards an explicit third argument and
+otherwise uses the inference launcher's default. `eve` is an alias for `ensemble`.
+Serial mode sends PIVOT first, waits for its
+response, then sends primitive. The Python CLI option is
+`--ensemble_request_mode=parallel|serial` (default parallel); it only affects ensemble interventions.
+After restarting once to load this code, mode changes apply on the next rollout
+without restarting the server or reloading weights.
+
+Supply the base VLM URL; the client adds `/v1/chat/completions` and checks `/health`
+for local servers. Later strategy switches reuse that client; changing the
 URL creates a new client on the next automatic intervention rollout. The effective mode is logged and saved in trajectory metadata,
 including `rollout_config.intervention_settings`. Editing Python source or other
 module constants such as `USE_WRIST` still requires restarting the server.
+
+For OpenAI image understanding, set the API key in the **policy server terminal**
+before starting (or restarting) the server:
+
+```bash
+export OPENAI_API_KEY="<your OpenAI API key>"
+bash pi_05_policy_server.bash
+```
+
+In your inference command (or `pi_05_inference.bash`), set:
+
+```bash
+--vlm_server_url="https://api.openai.com" \
+--vlm_model_name="gpt-4.1"
+```
+
+Choose a model that supports images and Chat Completions; `gpt-4.1` is one example.
+The URL may also end in `/v1`. The client reads the key only for the OpenAI host,
+skips `/health`, and authenticates on the first completion request. Exporting the
+key only in the inference terminal does not update an already-running server.
+The key is not included in rollout settings or recording metadata.
+
+OpenAI requests use `max_completion_tokens` and provider sampling defaults
+(temperature is omitted for compatibility with reasoning models). This token
+budget includes reasoning tokens where applicable. Local servers retain
+`max_tokens`, temperature `0.0`, and the Qwen-specific thinking settings.
+See the [OpenAI vision guide](https://developers.openai.com/api/docs/guides/images-vision)
+and [Chat Completions reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create).
+
+Saved primitive and PIVOT response PNGs include the returned model name, full
+response latency, and API-reported input and output token counts for that individual request.
+Latency covers the HTTP call through receipt and JSON decoding of the complete
+response, including network and generation time; it excludes image preparation
+and plot saving. Ensemble mode sends PIVOT and primitive VLM requests according
+to `ensemble_request_mode` (parallel by default),
+with separate response state and metrics. Both response plots also show
+`Both parallel calls latency` or `Both serial calls latency`: wall time from dispatch until both selections have
+returned, including image encoding, HTTP calls, and response parsing. It excludes
+preparing candidate actions/prompt images, saving plots, and blending actions.
+Image/tensor preparation and action blending stay on the policy thread. If either
+request fails, the ensemble fails without blending partial results.
+
+Input tokens come directly from `usage.prompt_tokens`; output tokens come from
+`usage.completion_tokens` (including reasoning tokens where applicable). The
+separate reasoning-token line uses `usage.completion_tokens_details.reasoning_tokens`;
+this count is already included in output tokens and is not added again. Counts
+are displayed for both OpenAI and local servers when supplied by the API.
+Missing counts show as unavailable; no token or cost estimates are calculated.
 
 The launcher uses `lerobot.scripts.pi05_inference`, a Franka inference-only client.
 It does not create, delete, or write a LeRobot dataset. OpenTeach camera recording,

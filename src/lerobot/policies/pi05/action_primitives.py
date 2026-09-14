@@ -6,11 +6,12 @@ import torch
 from deoxys.utils.transform_utils import axisangle2quat, quat_multiply
 CHUNK_SIZE = 100
 DES_TRANSLATION = 0.1
+DOWN_TRANSLATION = 0.05  # Metres; independent distance for the vertical "down" primitive.
 DES_ROTATION = np.deg2rad(22.5)
 GRIPPER_ACTION = -1.0  # Hardcoded as open
 
 BACKWARD = (0.0, 0.0, DES_TRANSLATION / CHUNK_SIZE, 0.0, 0.0, 0.0, GRIPPER_ACTION)
-FORWARD = (0.0, 0.0, -DES_TRANSLATION / CHUNK_SIZE, 0.0, 0.0, 0.0, GRIPPER_ACTION)
+FORWARD = (0.0, 0.0, -DOWN_TRANSLATION / CHUNK_SIZE, 0.0, 0.0, 0.0, GRIPPER_ACTION)
 RIGHT = (0.0, DES_TRANSLATION / CHUNK_SIZE, 0.0, 0.0, 0.0, 0.0, GRIPPER_ACTION)
 LEFT = (0.0, -DES_TRANSLATION / CHUNK_SIZE, 0.0, 0.0, 0.0, 0.0, GRIPPER_ACTION)
 UP = (-DES_TRANSLATION / CHUNK_SIZE, 0.0, 0.0, 0.0, 0.0, 0.0, GRIPPER_ACTION)
@@ -21,7 +22,7 @@ IN_PLACE = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, GRIPPER_ACTION)
 
 LABEL2ACTION = {
     "up": BACKWARD,
-    # "down": FORWARD,  # Disabled: can drive the robot into the table.
+    "down": FORWARD,
     "right": RIGHT,
     "left": LEFT,
     "backward": UP,
