@@ -1,18 +1,40 @@
-import requests
-import math
-import time
-import json
 import base64
-import numpy as np
-from PIL import Image
-from pathlib import Path
-from io import BytesIO
+import json
+import logging
+import math
 import os
+import time
+from io import BytesIO
+from pathlib import Path
+
+import numpy as np
+import requests
 import torch
 import torch.nn.functional as F
-import logging
+from PIL import Image
 
 log = logging.getLogger(__name__)
+
+
+class RoboMonkeyVerifierError(RuntimeError):
+    """A verifier failure with timing details suitable for the rollout log."""
+
+    def __init__(self, message, metrics):
+        super().__init__(message)
+        self.metrics = metrics
+
+
+def extract_task_description(prompt):
+    """Extract a task from the policy prompt without dropping clauses after commas."""
+    task = prompt.strip()
+    if task.startswith("Task:"):
+        task = task.removeprefix("Task:").rsplit(", State:", 1)[0]
+    return task.strip()
+
+
+def rollout_batch_limit_reached(sampled_batches, max_batches, cached_actions_remaining):
+    """Return whether another trajectory batch would exceed the rollout limit."""
+    return sampled_batches >= max_batches and not cached_actions_remaining
 
 
 def _resize_nchw(image, target_size, mode="bilinear", antialias=False):
@@ -231,7 +253,7 @@ def generate_augmented_samples_from_batch(batch_actions, num_samples=32):
     return augmented_array
 
 
-def get_rewards(instruction, image, actions, verifier_url):
+def get_rewards(instruction, image, actions, verifier_url, timeout_s=60.0):
     # Initialize rewards list
     all_rewards = []
     image_b64 = _image_to_b64(image)
@@ -243,6 +265,7 @@ def get_rewards(instruction, image, actions, verifier_url):
     num_batches = math.ceil(len(actions) / batch_size)
 
     rewards_start_time = time.perf_counter()
+    request_metrics = []
     for i in range(num_batches):
         # Get the current batch of actions
         start_idx = i * batch_size
@@ -256,49 +279,101 @@ def get_rewards(instruction, image, actions, verifier_url):
         }
 
         request_start_time = time.perf_counter()
-        response = requests.post(f"{verifier_url}/process_with_image_directly", data=json.dumps(payload))
-        print(
-            f"[ROBOMONKEY] verifier roundtrip batch {i + 1}/{num_batches}: "
-            f"{time.perf_counter() - request_start_time:.4f}s"
-        )
-        print('#' * 100)
-        print(response)
-        print(response.text)
-        print('#' * 100)
-        response_data = json.loads(response.text)
+        try:
+            response = requests.post(
+                f"{verifier_url.rstrip('/')}/process_with_image_directly",
+                data=json.dumps(payload),
+                headers={"Content-Type": "application/json"},
+                timeout=timeout_s,
+            )
+            response.raise_for_status()
+            response_data = response.json()
+            batch_rewards = response_data.get("rewards")
+            if not isinstance(batch_rewards, list) or len(batch_rewards) != len(action_batch):
+                raise ValueError(
+                    f"Expected {len(action_batch)} rewards, received "
+                    f"{len(batch_rewards) if isinstance(batch_rewards, list) else type(batch_rewards).__name__}"
+                )
+        except Exception as error:
+            elapsed = time.perf_counter() - request_start_time
+            request_metrics.append({
+                "batch_index": i,
+                "num_actions": len(action_batch),
+                "roundtrip_s": elapsed,
+                "status": "failed",
+                "error": f"{type(error).__name__}: {error}",
+            })
+            raise RoboMonkeyVerifierError(
+                f"RoboMonkey verifier request {i + 1}/{num_batches} failed: {error}",
+                {
+                    "verifier_roundtrip_s": time.perf_counter() - rewards_start_time,
+                    "verifier_requests": request_metrics,
+                },
+            ) from error
 
-        print("[ROBOMONKEY] response_data from verifier: ", response_data)
-        all_rewards.extend(response_data["rewards"])
+        elapsed = time.perf_counter() - request_start_time
+        request_metrics.append({
+            "batch_index": i,
+            "num_actions": len(action_batch),
+            "roundtrip_s": elapsed,
+            "status": "ok",
+        })
+        print(f"[ROBOMONKEY] verifier roundtrip batch {i + 1}/{num_batches}: {elapsed:.4f}s")
+        all_rewards.extend(batch_rewards)
 
-    print(f"[ROBOMONKEY] verifier roundtrip total: {time.perf_counter() - rewards_start_time:.4f}s")
-    return all_rewards
+    verifier_roundtrip_s = time.perf_counter() - rewards_start_time
+    print(f"[ROBOMONKEY] verifier roundtrip total: {verifier_roundtrip_s:.4f}s")
+    return all_rewards, {
+        "verifier_roundtrip_s": verifier_roundtrip_s,
+        "verifier_requests": request_metrics,
+    }
 
 
-def get_robomonkey_action(action_samples, instruction, robomonkey_verifier_img, verifier_url, img_dir, n_augmented):
-
+def get_robomonkey_action(
+    action_samples, instruction, robomonkey_verifier_img, verifier_url, img_dir, n_augmented, timeout_s=60.0
+):
+    total_start = time.perf_counter()
+    preprocess_start = time.perf_counter()
     image = Image.fromarray(preprocess_robomonkey_image(robomonkey_verifier_img)).convert("RGB")
+    image_preprocess_s = time.perf_counter() - preprocess_start
 
+    augmentation_start = time.perf_counter()
     actions = generate_augmented_samples_from_batch(
         batch_actions=action_samples.to(torch.float16).squeeze(1).cpu().numpy(),      # NOTE: We only score based on the first step in the current action plan
         num_samples=n_augmented
     )
+    candidate_augmentation_s = time.perf_counter() - augmentation_start
 
-    rewards = get_rewards(
-        instruction,
-        image,
-        actions,
-        verifier_url,
-    )
+    try:
+        rewards, verifier_metrics = get_rewards(
+            instruction, image, actions, verifier_url, timeout_s=timeout_s,
+        )
+    except RoboMonkeyVerifierError as error:
+        error.metrics.update({
+            "image_preprocess_s": image_preprocess_s,
+            "candidate_augmentation_s": candidate_augmentation_s,
+            "robomonkey_selection_s": time.perf_counter() - total_start,
+        })
+        raise
 
-    if len(rewards) == 0:
-        log.info("[ROBOMONKEY] NO REWARDS from verifier server shifting to default [0] index action !")
-
+    selection_start = time.perf_counter()
     selected_index = np.argmax(rewards)
+    selection_s = time.perf_counter() - selection_start
     log.info(f"[ROBOMONKEY] Selected index: {selected_index}")
 
     selected_action = actions[selected_index].copy()
     selected_action[-1] = (selected_action[-1] - 0.5) * 2
-    return selected_action
+    metrics = {
+        "image_preprocess_s": image_preprocess_s,
+        "candidate_augmentation_s": candidate_augmentation_s,
+        "selection_s": selection_s,
+        "robomonkey_selection_s": time.perf_counter() - total_start,
+        "num_policy_samples": int(action_samples.shape[0]),
+        "num_augmented_candidates": int(n_augmented),
+        "selected_candidate_index": int(selected_index),
+        **verifier_metrics,
+    }
+    return selected_action, metrics
 
 
 if __name__ == "__main__":

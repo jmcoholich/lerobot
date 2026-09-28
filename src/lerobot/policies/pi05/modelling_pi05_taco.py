@@ -41,7 +41,12 @@ from transformers.modeling_utils import no_init_weights
 from transformers.utils import cached_file
 from sklearn.metrics.pairwise import cosine_similarity
 
-from lerobot.policies.pi05.robomonkey_utils import get_robomonkey_action
+from lerobot.policies.pi05.robomonkey_utils import (
+    RoboMonkeyVerifierError,
+    extract_task_description,
+    get_robomonkey_action,
+    rollout_batch_limit_reached,
+)
 
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies.pi05.configuration_pi05 import PI05Config
@@ -133,6 +138,7 @@ MAX_CHUNKS = 8
 # INTERVENTIONS = "ensemble"
 INTERVENTIONS = "robomonkey"
 ROBOMONKEY_SERVER = os.environ.get("ROBOMONKEY_SERVER", "http://127.0.0.1:3100")
+ROBOMONKEY_TIMEOUT_S = float(os.environ.get("ROBOMONKEY_TIMEOUT_S", "60"))
 ROBOMONKEY_ALL_CHUNKS = 1       # whether to send all chunks to robomonkey for all actions in rollout (1), or only first action chunk (0)
 ROBOMONKEY_N_SAMPLES = 5       # number of trajectories to sample from robomonkey for each action chunk
 ROBOMONKEY_AUGMENTED_SAMPLES = 8  # number of augmented trajectories to create from each original trajectory sample from robomonkey (e.g. via noise or time warping)
@@ -143,6 +149,8 @@ VIS_SPREADS = False # no guidance, just generate 5 trajectories and visualize th
 if VIS_SPREADS:
     assert not MANUAL_GUIDANCE
     assert not INTERVENTIONS
+
+
 import random
 
 
@@ -1365,7 +1373,9 @@ class PI05PolicyTaco(PreTrainedPolicy):
         self.count = 0
 
         self.reset()
-        if INTERVENTIONS:
+        self.robomonkey_enabled = INTERVENTIONS == "robomonkey"
+        self.vlm_client = None
+        if INTERVENTIONS and not self.robomonkey_enabled:
             vllm_port = VLLM_SERVERS[0].rstrip("/").rsplit(":", 1)[1]
             self.vlm_client = VLMClient(server_url=f"http://127.0.0.1:{vllm_port}")
         if USE_WRIST:
@@ -1530,6 +1540,9 @@ class PI05PolicyTaco(PreTrainedPolicy):
         self._robomonkey_action_samples = None
         self._robomonkey_action_index = 0
         self._robomonkey_samples_exhausted = False
+        self._robomonkey_batch_id = None
+        self._robomonkey_verifier_request_id = 0
+        self.last_action_timing = None
         self._queues = {
             ACTION: deque(maxlen=self.config.n_action_steps),
         }
@@ -1640,6 +1653,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
     def select_action(self, batch: dict[str, Tensor], postprocessor=None, robot=None) -> Tensor:
         """Select a single action given environment observations."""
         self.eval()
+        self.last_action_timing = None
 
 
         # guidance_action_1 = get_guidance_action_from_text("up", postprocessor=postprocessor, robot=robot)
@@ -1659,13 +1673,17 @@ class PI05PolicyTaco(PreTrainedPolicy):
         # guidance_action = None
         # Action queue logic for n_action_steps > 1
         if len(self._action_queue) == 0:
-            if self.count == MAX_CHUNKS and not MANUAL_GUIDANCE:
-                sys.exit(0)
             robomonkey_cache_active = (
                 INTERVENTIONS == "robomonkey"
                 and self._robomonkey_action_samples is not None
                 and self._robomonkey_action_index < self._robomonkey_action_samples.shape[1]
             )
+            # Sampling increments count once per batch. Let every cached action in
+            # the final batch pass through the verifier before ending the rollout.
+            if not MANUAL_GUIDANCE and rollout_batch_limit_reached(
+                self.count, MAX_CHUNKS, robomonkey_cache_active
+            ):
+                sys.exit(0)
             robomonkey_intervention = (
                 INTERVENTIONS == "robomonkey"
                 and (robomonkey_cache_active or ROBOMONKEY_ALL_CHUNKS or not self._robomonkey_samples_exhausted)
@@ -1698,6 +1716,8 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     primitive_guidance_action = self.primitive_guidance(batch, postprocessor, robot, save_imgs=False)
                     guidance_action = self.action_ensemble(pivot_guidance_action, primitive_guidance_action, batch, postprocessor, robot, save_imgs=True)
                 elif INTERVENTIONS == "robomonkey":
+                    policy_sampling_s = None
+                    index_into_chunk = self._robomonkey_action_index
                     if robomonkey_cache_active:
                         increment_count = False
                     else:
@@ -1713,10 +1733,14 @@ class PI05PolicyTaco(PreTrainedPolicy):
                             )
                         if self._robomonkey_action_samples.device.type == "cuda":
                             torch.cuda.synchronize(self._robomonkey_action_samples.device)
-                        print(f"[ROBOMONKEY] policy prediction time: {time.perf_counter() - policy_start_time:.4f}s")
+                        policy_sampling_s = time.perf_counter() - policy_start_time
+                        print(f"[ROBOMONKEY] policy prediction time: {policy_sampling_s:.4f}s")
+                        self._robomonkey_batch_id = self.count
                         self._robomonkey_action_index = 0
                         self._robomonkey_samples_exhausted = False
+                        index_into_chunk = 0
                     action_samples = self._robomonkey_action_samples
+                    intervention_start_time = time.perf_counter()
                     robomonkey_prompt_img = batch['observation.images.camera_front'][:1, :, :, 140:500]
                     robomonkey_prompt_img = (
                         robomonkey_prompt_img[0]
@@ -1728,7 +1752,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
                         .cpu()
                         .numpy()
                     )
-                    index_into_chunk = self._robomonkey_action_index
+                    conversion_start_time = time.perf_counter()
                     q01 = torch.as_tensor(
                         postprocessor.steps[0].stats['action']['min'],
                         device=action_samples.device,
@@ -1742,16 +1766,49 @@ class PI05PolicyTaco(PreTrainedPolicy):
                     denom = q99 - q01
                     current_action = current_eve_action(robot, like=action_samples)
                     eve_action_samples = (action_samples[:, index_into_chunk, :] + 1.0) / 2.0 * denom + q01
-                    robomonkey_action_samples = get_robomonkey_action(
-                        eve2robomonkey_actions(eve_action_samples, current_action),
-                        batch['task'][0].split(',')[0].split(':')[1].strip(),
-                        robomonkey_prompt_img,
-                        ROBOMONKEY_SERVER,
-                        "robomonkey_imgs",  # robomonkey
-                        ROBOMONKEY_AUGMENTED_SAMPLES,
-                    )
-                    actions = robomonkey2eve_actions(robomonkey_action_samples, current_action)
-                    actions = (2.0 * (actions - q01) / denom - 1.0).reshape(1, 1, -1)
+                    robomonkey_inputs = eve2robomonkey_actions(eve_action_samples, current_action)
+                    action_conversion_s = time.perf_counter() - conversion_start_time
+                    request_id = self._robomonkey_verifier_request_id
+                    self._robomonkey_verifier_request_id += 1
+                    timing = {
+                        "status": "failed",
+                        "trajectory_batch_id": self._robomonkey_batch_id,
+                        "verifier_request_id": request_id,
+                        "action_index_in_batch": index_into_chunk,
+                        "fresh_policy_sampling": not robomonkey_cache_active,
+                        "policy_sampling_source": "cached" if robomonkey_cache_active else "fresh",
+                        "policy_sampling_s": policy_sampling_s,
+                        "action_conversion_s": action_conversion_s,
+                    }
+                    try:
+                        robomonkey_action_samples, verifier_metrics = get_robomonkey_action(
+                            robomonkey_inputs,
+                            extract_task_description(batch['task'][0]),
+                            robomonkey_prompt_img,
+                            ROBOMONKEY_SERVER,
+                            "robomonkey_imgs",
+                            ROBOMONKEY_AUGMENTED_SAMPLES,
+                            timeout_s=ROBOMONKEY_TIMEOUT_S,
+                        )
+                        conversion_start_time = time.perf_counter()
+                        actions = robomonkey2eve_actions(robomonkey_action_samples, current_action)
+                        actions = (2.0 * (actions - q01) / denom - 1.0).reshape(1, 1, -1)
+                        timing["action_conversion_s"] += time.perf_counter() - conversion_start_time
+                        timing.update(verifier_metrics)
+                        timing["status"] = "ok"
+                    except RoboMonkeyVerifierError as error:
+                        timing.update(error.metrics)
+                        timing["error"] = f"{type(error).__name__}: {error}"
+                        timing["robomonkey_intervention_s"] = time.perf_counter() - intervention_start_time
+                        self.last_action_timing = timing
+                        raise
+                    except BaseException as error:
+                        timing["error"] = f"{type(error).__name__}: {error}"
+                        timing["robomonkey_intervention_s"] = time.perf_counter() - intervention_start_time
+                        self.last_action_timing = timing
+                        raise
+                    timing["robomonkey_intervention_s"] = time.perf_counter() - intervention_start_time
+                    self.last_action_timing = timing
                     self._robomonkey_action_index += 1
                     if self._robomonkey_action_index >= self._robomonkey_action_samples.shape[1]:
                         self._robomonkey_action_samples = None
@@ -1970,7 +2027,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             ],
             dim=0,
         )
-        task = batch['task'][0].split(',')[0].split(':')[1].strip()
+        task = extract_task_description(batch['task'][0])
         text_prompt = self.gen_primitive_text_prompt(task)
         # front_prompt_img, wrist_prompt_img = visualize_trajectories_on_camera(
         #     batch,
@@ -2040,7 +2097,7 @@ class PI05PolicyTaco(PreTrainedPolicy):
             save_imgs=save_imgs,
             save_dir=self._vlm_io_output_dir(robot),
             )
-        task = batch['task'][0].split(',')[0].split(':')[1].strip()
+        task = extract_task_description(batch['task'][0])
         text_prompt = self.gen_pivot_text_prompt(task, num_trajs)
         if USE_WRIST:
             pil_img = Image.fromarray(cv2.cvtColor(wrist_prompt_img, cv2.COLOR_BGR2RGB))

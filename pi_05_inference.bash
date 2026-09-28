@@ -1,9 +1,14 @@
 rm -rf /home/jeremiah/.cache/huggingface/lerobot/dummy
 
 RECORD_NAME="${1:-last_recording}"
-export PYTHONPATH="/home/jeremiah/openteach:${PYTHONPATH}"
+TASK="${2:-place the coffee pod in the bin}"
+LEROBOT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${LEROBOT_ROOT}/src:/home/jeremiah/openteach${PYTHONPATH:+:${PYTHONPATH}}"
+export ROBOMONKEY_SERVER="${ROBOMONKEY_SERVER:-http://127.0.0.1:8991}"
+export ROBOMONKEY_TIMEOUT_S="${ROBOMONKEY_TIMEOUT_S:-60}"
+export ROBOMONKEY_TIMING_ROOT="${ROBOMONKEY_TIMING_ROOT:-/home/jeremiah/openteach/extracted_data}"
 
-python src/lerobot/scripts/lerobot_record.py \
+python "${LEROBOT_ROOT}/src/lerobot/scripts/lerobot_record.py" \
   --robot.record="${RECORD_NAME}" \
   --robot.type=franka \
   --robot.id=franka \

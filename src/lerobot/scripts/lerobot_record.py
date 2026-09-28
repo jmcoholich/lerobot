@@ -62,8 +62,9 @@ lerobot-record \
 ```
 """
 
-import logging
 import importlib
+import inspect
+import logging
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -306,6 +307,7 @@ def record_loop(
     single_task: str | None = None,
     display_data: bool = False,
     display_compressed_images: bool = False,
+    timing_recorder: Any | None = None,
 ):
     if dataset is not None and dataset.fps != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset.fps} != {fps}).")
@@ -336,34 +338,54 @@ def record_loop(
     timestamp = 0
     start_episode_t = time.perf_counter()
     while timestamp < control_time_s:
-        start_loop_t = time.perf_counter()
+        start_loop_t = timing_recorder.begin_loop() if timing_recorder is not None else time.perf_counter()
 
         if events["exit_early"]:
             events["exit_early"] = False
             break
 
         # Get robot observation
+        observation_start_t = time.perf_counter()
         obs = robot.get_observation()
+        observation_acquisition_s = time.perf_counter() - observation_start_t
 
         # Applies a pipeline to the raw robot observation, default is IdentityProcessor
+        observation_processing_start_t = time.perf_counter()
         obs_processed = robot_observation_processor(obs)
 
         if policy is not None or dataset is not None:
             observation_frame = build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR)
+        observation_processing_s = time.perf_counter() - observation_processing_start_t
 
         # Get action from either policy or teleop
         if policy is not None and preprocessor is not None and postprocessor is not None:
-            action_values = predict_action(
-                observation=observation_frame,
-                policy=policy,
-                device=get_safe_torch_device(policy.config.device),
-                preprocessor=preprocessor,
-                postprocessor=postprocessor,
-                use_amp=policy.config.use_amp,
-                task=single_task,
-                robot_type=robot.robot_type,
-                robot=robot,
-            )
+            policy_inference_start_t = time.perf_counter()
+            try:
+                action_values = predict_action(
+                    observation=observation_frame,
+                    policy=policy,
+                    device=get_safe_torch_device(policy.config.device),
+                    preprocessor=preprocessor,
+                    postprocessor=postprocessor,
+                    use_amp=policy.config.use_amp,
+                    task=single_task,
+                    robot_type=robot.robot_type,
+                    robot=robot,
+                )
+            except BaseException as error:
+                if timing_recorder is not None:
+                    timing_recorder.mark_rollout_end()
+                if timing_recorder is not None and getattr(policy, "last_action_timing", None) is not None:
+                    failure = {
+                        "observation_acquisition_s": observation_acquisition_s,
+                        "observation_processing_s": observation_processing_s,
+                        "policy_inference_s": time.perf_counter() - policy_inference_start_t,
+                        **policy.last_action_timing,
+                    }
+                    failure.setdefault("error", f"{type(error).__name__}: {error}")
+                    timing_recorder.write_failure(failure)
+                raise
+            policy_inference_s = time.perf_counter() - policy_inference_start_t
 
             act_processed_policy: RobotAction = make_robot_action(action_values, dataset.features)
 
@@ -400,27 +422,73 @@ def record_loop(
         # Action can eventually be clipped using `max_relative_target`,
         # so action actually sent is saved in the dataset. action = postprocessor.process(action)
         # TODO(steven, pepijn, adil): we should use a pipeline step to clip the action, so the sent action is the action that we input to the robot.
+        command_submission_start_t = time.perf_counter()
         _sent_action = robot.send_action(robot_action_to_send)
+        command_submission_s = time.perf_counter() - command_submission_start_t
 
-        # Write to dataset
-        if dataset is not None:
-            action_frame = build_dataset_frame(dataset.features, action_values, prefix=ACTION)
-            frame = {**observation_frame, **action_frame, "task": single_task}
-            dataset.add_frame(frame)
+        # Once send_action returns, always emit one timing record for that executed action,
+        # including when recording, display, or sleep is interrupted afterward.
+        dataset_recording_s = 0.0
+        control_loop_sleep_s = 0.0
+        post_command_error = None
+        active_loop_s = time.perf_counter() - start_loop_t
+        sleep_start_t = None
+        try:
+            dataset_recording_start_t = time.perf_counter()
+            if dataset is not None:
+                action_frame = build_dataset_frame(dataset.features, action_values, prefix=ACTION)
+                frame = {**observation_frame, **action_frame, "task": single_task}
+                dataset.add_frame(frame)
+            dataset_recording_s = time.perf_counter() - dataset_recording_start_t
 
-        if display_data:
-            log_rerun_data(
-                observation=obs_processed, action=action_values, compress_images=display_compressed_images
-            )
+            if display_data:
+                log_rerun_data(
+                    observation=obs_processed,
+                    action=action_values,
+                    compress_images=display_compressed_images,
+                )
 
-        dt_s = time.perf_counter() - start_loop_t
-        precise_sleep(max(1 / fps - dt_s, 0.0))
+            active_loop_s = time.perf_counter() - start_loop_t
+            sleep_start_t = time.perf_counter()
+            precise_sleep(max(1 / fps - active_loop_s, 0.0))
+            control_loop_sleep_s = time.perf_counter() - sleep_start_t
+        except BaseException as error:
+            if timing_recorder is not None:
+                timing_recorder.mark_rollout_end()
+            if sleep_start_t is None:
+                active_loop_s = time.perf_counter() - start_loop_t
+            else:
+                control_loop_sleep_s = time.perf_counter() - sleep_start_t
+            post_command_error = f"{type(error).__name__}: {error}"
+            raise
+        finally:
+            if timing_recorder is not None:
+                action_timing = getattr(policy, "last_action_timing", None) or {}
+                record_timing = {
+                    "observation_acquisition_s": observation_acquisition_s,
+                    "observation_processing_s": observation_processing_s,
+                    "policy_inference_s": policy_inference_s,
+                    "command_submission_s": command_submission_s,
+                    "dataset_recording_s": dataset_recording_s,
+                    "control_loop_active_s": active_loop_s,
+                    "control_loop_sleep_s": control_loop_sleep_s,
+                    "control_loop_total_s": time.perf_counter() - start_loop_t,
+                    **action_timing,
+                }
+                if post_command_error is not None:
+                    record_timing["status"] = "executed_with_error"
+                    record_timing["post_command_error"] = post_command_error
+                timing_recorder.write_action(record_timing)
 
         timestamp = time.perf_counter() - start_episode_t
+
+    if timing_recorder is not None:
+        timing_recorder.mark_rollout_end()
 
 
 @parser.wrap()
 def record(cfg: RecordConfig) -> LeRobotDataset:
+    process_start_t = time.perf_counter()
     init_logging()
     logging.info(pformat(asdict(cfg)))
     if cfg.display_data:
@@ -453,6 +521,9 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
     dataset = None
     listener = None
+    timing_recorder = None
+    end_reason = "duration_limit"
+    run_error = None
 
     try:
         if cfg.resume:
@@ -487,6 +558,21 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
         # Load pretrained policy
         policy = None if cfg.policy is None else make_policy(cfg.policy, ds_meta=dataset.meta)
+        if policy is not None and getattr(policy, "robomonkey_enabled", False):
+            from lerobot.policies.pi05.robomonkey_timing import RoboMonkeyTimingRecorder
+
+            expected_policy_source = (
+                Path(__file__).resolve().parents[1] / "policies/pi05/modelling_pi05_taco.py"
+            )
+            loaded_policy_source = Path(inspect.getfile(type(policy))).resolve()
+            if loaded_policy_source != expected_policy_source:
+                raise RuntimeError(
+                    "RoboMonkey policy was imported from the wrong checkout: "
+                    f"expected {expected_policy_source}, got {loaded_policy_source}"
+                )
+            logging.info("Verified RoboMonkey policy source: %s", loaded_policy_source)
+            timing_recorder = RoboMonkeyTimingRecorder(cfg.robot.record, process_start_t)
+            logging.info("RoboMonkey timing records will be written to %s", timing_recorder.output_dir)
         preprocessor = None
         postprocessor = None
         if cfg.policy is not None:
@@ -526,6 +612,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     single_task=cfg.dataset.single_task,
                     display_data=cfg.display_data,
                     display_compressed_images=display_compressed_images,
+                    timing_recorder=timing_recorder,
                 )
 
                 # Execute a few seconds without recording to give time to manually reset the environment
@@ -561,6 +648,21 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
                 dataset.save_episode()
                 recorded_episodes += 1
+    except KeyboardInterrupt as error:
+        end_reason = "keyboard_interrupt"
+        run_error = f"{type(error).__name__}: {error}"
+        raise
+    except SystemExit as error:
+        if error.code in (None, 0):
+            end_reason = "policy_action_limit"
+        else:
+            end_reason = "system_exit"
+            run_error = f"SystemExit: {error.code}"
+        raise
+    except BaseException as error:
+        end_reason = "error"
+        run_error = f"{type(error).__name__}: {error}"
+        raise
     finally:
         # log_say("Stop recording", cfg.play_sounds, blocking=True)
 
@@ -569,13 +671,32 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
         # if dataset:
         #     dataset.finalize()
 
-        if robot.is_connected or robot.name == "franka":
-            robot.disconnect()
-        if teleop and teleop.is_connected:
-            teleop.disconnect()
+        if timing_recorder is not None:
+            timing_recorder.mark_rollout_end()
+        cleanup_start_t = (
+            timing_recorder.rollout_end if timing_recorder is not None else time.perf_counter()
+        )
+        cleanup_error = None
+        try:
+            if robot.is_connected or robot.name == "franka":
+                robot.disconnect()
+            if teleop and teleop.is_connected:
+                teleop.disconnect()
 
-        if not is_headless() and listener:
-            listener.stop()
+            if not is_headless() and listener:
+                listener.stop()
+        except BaseException as error:
+            cleanup_error = f"{type(error).__name__}: {error}"
+            raise
+        finally:
+            if timing_recorder is not None:
+                summary = timing_recorder.finalize(
+                    cleanup_s=time.perf_counter() - cleanup_start_t,
+                    end_reason="cleanup_error" if cleanup_error is not None else end_reason,
+                    error=run_error or cleanup_error,
+                )
+                logging.info("RoboMonkey timing summary: %s", timing_recorder.summary_path)
+                logging.info("RoboMonkey executed actions: %s", summary["executed_actions"])
 
         # if cfg.dataset.push_to_hub:
         #     dataset.push_to_hub(tags=cfg.dataset.tags, private=cfg.dataset.private)

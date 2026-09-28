@@ -1,0 +1,597 @@
+{
+  "demonstration_both_in_bin_interleaved_0_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_0_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_10_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_10_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_11_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_11_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_12_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_12_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_13_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_13_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_14_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_14_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_15_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_15_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_16_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_16_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_17_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_17_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_18_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_18_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_19_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_19_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_1_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_1_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_20_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_20_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_21_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_21_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_22_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_22_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_23_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_23_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_24_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_24_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_2_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_2_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_3_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_3_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_4_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_4_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_5_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_5_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_6_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_6_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_7_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_7_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_8_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_8_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_9_blue": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_both_in_bin_interleaved_9_pink": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_base_prompt_no_intervention_0": {},
+  "demonstration_base_prompt_no_intervention_1": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_base_prompt_no_intervention_2": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_base_prompt_no_intervention_3": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_base_prompt_no_intervention_4": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_base_prompt_no_intervention_5": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_base_prompt_no_intervention_6": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_base_prompt_no_intervention_7": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_base_prompt_no_intervention_8": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_base_prompt_no_intervention_9": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_dracorex_base_0": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_dracorex_base_1": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_dracorex_base_2": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_dracorex_base_3": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_dracorex_base_4": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_dracorex_base_5": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  },
+  "demonstration_dracorex_base_6": {
+    "CONTROL_FREQ": 20,
+    "ROTATION_VELOCITY_LIMIT": 0.2,
+    "STATE_FREQ": 60,
+    "TRANSLATION_VELOCITY_LIMIT": 0.1,
+    "VR_FREQ": 20,
+    "controller_cfg_json": "{\"Kp\":{\"rotation\":[250.0,250.0,250.0],\"translation\":[250.0,250.0,250.0]},\"action_scale\":{\"rotation\":1.0,\"translation\":1.0},\"control_mode\":\"absolute_eef_pose_to_delta\",\"controller_type\":\"OSC_POSE\",\"is_delta\":true,\"residual_mass_vec\":[0.0,0.0,0.0,0.0,0.1,0.5,0.5],\"state_estimator_cfg\":{\"alpha_dq\":0.9,\"alpha_eef\":1.0,\"alpha_eef_vel\":1.0,\"alpha_q\":0.9,\"is_estimation\":false,\"state_estimator_type\":\"EXPONENTIAL_SMOOTHING\"},\"traj_interpolator_cfg\":{\"time_fraction\":0.3,\"traj_interpolator_type\":\"LINEAR_POSE\"}}",
+    "controller_type": "OSC_POSE"
+  }
+}

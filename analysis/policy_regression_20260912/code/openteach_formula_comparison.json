@@ -1,0 +1,178 @@
+[
+  {
+    "path": "/data3/extracted_data/base_rollouts_original/demonstration_base_prompt_no_intervention_6/deoxys_obs_cmd_history_base_prompt_no_intervention_6.h5",
+    "n": 558,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0013062730431556702
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/base_rollouts_original/demonstration_base_prompt_no_intervention_8/deoxys_obs_cmd_history_base_prompt_no_intervention_8.h5",
+    "n": 570,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0011502765119075775
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/base_rollouts_original/demonstration_base_prompt_no_intervention_5/deoxys_obs_cmd_history_base_prompt_no_intervention_5.h5",
+    "n": 600,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0008039698004722595
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/base_rollouts_original/demonstration_base_prompt_no_intervention_9/deoxys_obs_cmd_history_base_prompt_no_intervention_9.h5",
+    "n": 800,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0007477793842554092
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/base_rollouts_original/demonstration_base_prompt_no_intervention_4/deoxys_obs_cmd_history_base_prompt_no_intervention_4.h5",
+    "n": 800,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0007149651646614075
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/base_rollouts_original/demonstration_base_prompt_no_intervention_7/deoxys_obs_cmd_history_base_prompt_no_intervention_7.h5",
+    "n": 800,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0013632215559482574
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/base_rollouts_original/demonstration_base_prompt_no_intervention_1/deoxys_obs_cmd_history_base_prompt_no_intervention_1.h5",
+    "n": 547,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0011237412691116333
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/base_rollouts_original/demonstration_base_prompt_no_intervention_2/deoxys_obs_cmd_history_base_prompt_no_intervention_2.h5",
+    "n": 559,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0009791776537895203
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/base_rollouts_original/demonstration_base_prompt_no_intervention_3/deoxys_obs_cmd_history_base_prompt_no_intervention_3.h5",
+    "n": 693,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0010734368115663528
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/demonstration_dracorex_base_4/deoxys_obs_cmd_history_dracorex_base_4.h5",
+    "n": 975,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0007600113749504089
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/demonstration_dracorex_base_6/deoxys_obs_cmd_history_dracorex_base_6.h5",
+    "n": 975,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0007083415985107422
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/demonstration_dracorex_base_0/deoxys_obs_cmd_history_dracorex_base_0.h5",
+    "n": 975,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0006588250398635864
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/demonstration_dracorex_base_2/deoxys_obs_cmd_history_dracorex_base_2.h5",
+    "n": 975,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0008067893795669079
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/demonstration_dracorex_base_5/deoxys_obs_cmd_history_dracorex_base_5.h5",
+    "n": 975,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.001365024596452713
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/demonstration_dracorex_base_1/deoxys_obs_cmd_history_dracorex_base_1.h5",
+    "n": 975,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0003005775064229959,
+      0.0018207170069217682
+    ]
+  },
+  {
+    "path": "/data3/extracted_data/demonstration_dracorex_base_3/deoxys_obs_cmd_history_dracorex_base_3.h5",
+    "n": 975,
+    "old_current_formula_max_abs_error": 0.0,
+    "recorded_formula_abs_error_quantile": [
+      0.0,
+      0.0,
+      0.0,
+      0.0008883178234100342
+    ]
+  }
+]
