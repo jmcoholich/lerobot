@@ -8,8 +8,9 @@
 #SBATCH -c 8
 #SBATCH --mem=12G
 #SBATCH --qos=short
+#SBATCH --time=00:30:00
 #SBATCH --array=0-297%20
-#SBATCH --exclude=ig-88,megazord,cyborg,megazord,sonny,spd-13
+#SBATCH --exclude=ig-88,megazord,cyborg,megazord,sonny,spd-13,flexo
 
 set -e
 
