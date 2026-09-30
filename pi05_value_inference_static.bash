@@ -4,7 +4,7 @@
 #SBATCH --error=slurm_logs/%x_%A_%a.err
 #SBATCH -p kira-lab
 #SBATCH -A kira-lab
-#SBATCH -G 2080_ti:1
+#SBATCH -G a40:1
 #SBATCH -c 8
 #SBATCH --mem=12G
 #SBATCH --qos=short
@@ -26,20 +26,20 @@ if ! GPU_STATUS=$(nvidia-smi 2>&1) || [[ "$GPU_STATUS" == *ERR* ]]; then
     exit 1
 fi
 
-CHECKPOINT=${3:-last}
-RUN_NAME="$2"
-EPISODES=${4:-$SLURM_ARRAY_TASK_ID}
+CHECKPOINT="${3:-last}"
+RUN_NAME="${INFERENCE_RUN_NAME:-$2}"
+EPISODES="${4:-$SLURM_ARRAY_TASK_ID}"
 VIDEO_PREFIX="output_videos/${2}_all_cams"
 VIDEO_PATH="/coc/testnvme/jcoholich3/reward-modeling/${VIDEO_PREFIX}/task_0/episode_${SLURM_ARRAY_TASK_ID}/all_cams.mp4"
 VIDEO_ARGS=()
-if [ -f "$VIDEO_PATH" ]; then
+if [ "${SKIP_VIDEO:-0}" = 1 ] || [ -f "$VIDEO_PATH" ]; then
   VIDEO_ARGS+=(--skip-video)
 fi
 
 python src/lerobot/scripts/lerobot_pi05_value_inference.py \
-  --policy-path=outputs/$1/checkpoints/$CHECKPOINT/pretrained_model \
-  --dataset-root=/coc/testnvme/jcoholich3/lerobot_data/$2 \
-  --output-dir=/coc/testnvme/jcoholich3/reward-modeling/viewer_files \
+  --policy-path="${POLICY_PATH:-outputs/$1/checkpoints/$CHECKPOINT/pretrained_model}" \
+  --dataset-root="${DATASET_ROOT:-/coc/testnvme/jcoholich3/lerobot_data/$2}" \
+  --output-dir="${INFERENCE_OUTPUT_DIR:-/coc/testnvme/jcoholich3/reward-modeling/viewer_files}" \
   --manifest-name="${RUN_NAME}.json" \
   --video-prefix="$VIDEO_PREFIX" \
   --episodes="$SLURM_ARRAY_TASK_ID" \
@@ -47,7 +47,7 @@ python src/lerobot/scripts/lerobot_pi05_value_inference.py \
   --skip-manifest \
   "${VIDEO_ARGS[@]}"
 
-if [ "$SLURM_ARRAY_TASK_ID" = "$SLURM_ARRAY_TASK_MIN" ]; then
+if [ "${SKIP_MANIFEST:-0}" != 1 ] && [ "$SLURM_ARRAY_TASK_ID" = "$SLURM_ARRAY_TASK_MIN" ]; then
   python - "$RUN_NAME" "$EPISODES" <<'PY'
 import json
 import sys
