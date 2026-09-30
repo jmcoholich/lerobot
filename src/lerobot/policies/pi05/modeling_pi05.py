@@ -1224,7 +1224,7 @@ class PI05Policy(PreTrainedPolicy):
 
         if self.config.awr_temperature is not None:
             advantages = batch[self.config.awr_advantage_key].reshape(losses.shape[0]).to(losses)
-            weights = torch.exp(self.config.awr_temperature * advantages)
+            weights = torch.exp(self.config.awr_temperature * advantages).clamp(max=20.0)
             loss = (losses.mean(dim=[1, 2]) * weights).mean()
         else:
             loss = losses.mean()
