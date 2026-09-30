@@ -158,7 +158,7 @@ def _extract_complementary_data(batch: dict[str, Any]) -> dict[str, Any]:
     """
     Extract complementary data from a batch dictionary.
 
-    This includes padding flags, task description, and indices.
+    This includes padding flags, AWR advantage fields, task description, and indices.
 
     Args:
         batch: The batch dictionary.
@@ -166,7 +166,7 @@ def _extract_complementary_data(batch: dict[str, Any]) -> dict[str, Any]:
     Returns:
         A dictionary with the extracted complementary data.
     """
-    pad_keys = {k: v for k, v in batch.items() if "_is_pad" in k}
+    pad_keys = {k: v for k, v in batch.items() if "_is_pad" in k or "awr_advantage" in k}
     task_key = {"task": batch["task"]} if "task" in batch else {}
     subtask_key = {"subtask": batch["subtask"]} if "subtask" in batch else {}
     index_key = {"index": batch["index"]} if "index" in batch else {}
