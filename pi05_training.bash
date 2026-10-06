@@ -5,8 +5,8 @@
 #SBATCH -G a40:1
 #SBATCH -c 12
 #SBATCH --mem=32G
-#SBATCH --qos=long
-#SBATCH -x nestor,chappie,ig-88,perseverance,sonny
+#SBATCH --qos=short
+#SBATCH -x nestor,chappie,ig-88,perseverance,sonny,voltron
 JOB_NAME=$2
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=40
@@ -48,7 +48,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.optimizer_lr=$LR \
     --policy.device=cuda \
     --batch_size=32 \
-    --log_freq=5 \
+    --log_freq=20 \
     --save_freq=1500 \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
 
