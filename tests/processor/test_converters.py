@@ -248,6 +248,8 @@ def test_batch_to_transition_preserves_annotation_targets():
         "annotation_reward": torch.tensor([[0.0], [1.0]]),
         "annotation_reward_is_pad": torch.tensor([False, False]),
         "annotation_return_gamma_0.99": torch.tensor([0.99]),
+        "codex_astra_reward_v6_return_gamma_0.95": torch.tensor([[0.95], [1.0]]),
+        "codex_astra_reward_v6": torch.tensor([[0.0], [1.0]]),
     }
 
     processed_batch = transition_to_batch(batch_to_transition(batch))

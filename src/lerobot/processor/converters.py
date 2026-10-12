@@ -177,10 +177,20 @@ def _extract_complementary_data(batch: dict[str, Any]) -> dict[str, Any]:
     annotation_reward_key = (
         {"annotation_reward": batch["annotation_reward"]} if "annotation_reward" in batch else {}
     )
+    codex_reward_key = (
+        {"codex_astra_reward_v6": batch["codex_astra_reward_v6"]} if "codex_astra_reward_v6" in batch else {}
+    )
     returns_keys = {
         k: v
         for k, v in batch.items()
-        if k.startswith(("returns_gamma_", "sparse_returns_gamma_", "annotation_return_gamma_"))
+        if k.startswith(
+            (
+                "returns_gamma_",
+                "sparse_returns_gamma_",
+                "annotation_return_gamma_",
+                "codex_astra_reward_v6_return_gamma_",
+            )
+        )
     }
     q_keys = {
         k: v
@@ -198,6 +208,7 @@ def _extract_complementary_data(batch: dict[str, Any]) -> dict[str, Any]:
         **reward_key,
         **sparse_reward_key,
         **annotation_reward_key,
+        **codex_reward_key,
         **returns_keys,
         **q_keys,
     }

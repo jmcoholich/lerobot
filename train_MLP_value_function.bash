@@ -49,6 +49,7 @@ if [ "$DISCOUNT_KEY" = "1" ]; then
     DISCOUNT_KEY=1.0
 fi
 VALUE_KEY=${VALUE_KEY:-annotation_return_gamma_${DISCOUNT_KEY}}
+REWARD_KEY=${REWARD_KEY:-annotation_reward}
 if [ "$SEED" != "1000" ]; then
     JOB_NAME="${JOB_NAME}_seed_${SEED}"
 fi
@@ -89,7 +90,7 @@ echo "Value key: $VALUE_KEY"
 echo "Vision initialization: $INIT"
 echo "N-step return horizon: $N_STEP"
 echo "Discount factor: $DISCOUNT"
-echo "Reward key: annotation_reward"
+echo "Reward key: $REWARD_KEY"
 echo "Target network tau: $TAU"
 echo "Learning rate: $LR"
 echo "Train episodes: $TRAIN_EPISODES"
@@ -150,7 +151,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --policy.value_dim=1 \
     --policy.value_bootstrap_steps="$N_STEP" \
     --policy.value_discount="$DISCOUNT" \
-    --policy.value_reward_key=annotation_reward \
+    --policy.value_reward_key="$REWARD_KEY" \
     --policy.value_target_tau="$TAU" \
     --steps=$STEPS \
     --policy.optimizer_lr=$LR \
