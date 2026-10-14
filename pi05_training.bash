@@ -25,6 +25,11 @@ echo "PI05 pretrained path: $PI05_BASE_PRETRAINED_PATH"
 source /coc/testnvme/$USER/.bashrc
 conda activate lerobot
 
+# Isolate dataset cache locks per job on local storage.
+HF_DATASETS_CACHE=$(mktemp -d /tmp/lerobot-training-cache.XXXXXX) || exit 1
+export HF_DATASETS_CACHE
+trap 'rm -rf -- "$HF_DATASETS_CACHE"' EXIT
+
 python src/lerobot/scripts/lerobot_train.py\
     --dataset.repo_id=$DATASET \
     --dataset.root="/coc/testnvme/jcoholich3/lerobot_data/$DATASET" \

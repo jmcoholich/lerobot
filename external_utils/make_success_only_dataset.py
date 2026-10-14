@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Keep whole episodes whose manual outcome annotations are strictly 'success'.
+"""Keep whole episodes using strict success annotations or StackFour rewards.
 
 Videos are hard-linked without decoding or reencoding; source and destination
 must be on the same filesystem. Treat linked video files as immutable. Shared
@@ -40,13 +40,27 @@ def feature_stats(values):
     return stats
 
 
-def create_subset(source: Path, output: Path, dry_run=False):
-    info = load_json(source / "meta/info.json")
-    if info["codebase_version"] != "v3.0":
-        raise ValueError("This script requires a LeRobot v3.0 dataset")
-    if output.exists():
-        raise FileExistsError(f"Refusing to overwrite {output}")
-    data = pa.concat_tables([pq.read_table(path) for path in find_data_files(source)])
+def select_success_episodes(data, stack_four_reward_key=None):
+    if stack_four_reward_key is not None:
+        episode_ids = np.asarray(data["episode_index"])
+        rewards = np.asarray(data[stack_four_reward_key].to_pylist(), dtype=np.float64)
+        if rewards.size != len(data):
+            raise ValueError("Expected one scalar reward per frame")
+        rewards = rewards.reshape(-1)
+        selected = []
+        for episode in np.unique(episode_ids):
+            values = rewards[episode_ids == episode]
+            picks = np.isclose(values, 0.135, atol=1e-6, rtol=0)
+            places = (values >= 0.27 - 1e-6) & (values <= 0.405 + 1e-6)
+            if (
+                np.isfinite(values).all()
+                and (values >= 0).all()
+                and picks.sum() == 3
+                and places.sum() == 3
+                and np.all((values == 0) | picks | places)
+            ):
+                selected.append(int(episode))
+        return selected
     outcomes = {}
     for episode, annotation in zip(
         data["episode_index"].to_pylist(), data["annotation"].to_pylist(), strict=False
@@ -54,7 +68,17 @@ def create_subset(source: Path, output: Path, dry_run=False):
         label = (annotation or "").strip()
         if label and label != "plug picked":
             outcomes.setdefault(episode, set()).add(label)
-    selected = sorted(episode for episode, labels in outcomes.items() if labels == {"success"})
+    return sorted(episode for episode, labels in outcomes.items() if labels == {"success"})
+
+
+def create_subset(source: Path, output: Path, dry_run=False, stack_four_reward_key=None):
+    info = load_json(source / "meta/info.json")
+    if info["codebase_version"] != "v3.0":
+        raise ValueError("This script requires a LeRobot v3.0 dataset")
+    if output.exists():
+        raise FileExistsError(f"Refusing to overwrite {output}")
+    data = pa.concat_tables([pq.read_table(path) for path in find_data_files(source)])
+    selected = select_success_episodes(data, stack_four_reward_key)
     if not selected:
         raise ValueError("No strict-success episodes found")
     data = data.filter(pc.is_in(data["episode_index"], value_set=pa.array(selected)))
@@ -140,7 +164,22 @@ def create_subset(source: Path, output: Path, dry_run=False):
         )
         write_json_atomic(info, root / "meta/info.json")
         write_json_atomic(stats, root / "meta/stats.json")
-        write_json_atomic({"source": str(source), "episodes": provenance}, root / "meta/success_subset.json")
+        selection = {"method": "strict_success_annotation"}
+        if stack_four_reward_key is not None:
+            selection = {
+                "method": "stack_four_rewards",
+                "reward_key": stack_four_reward_key,
+                "pick_reward": 0.135,
+                "place_reward_range": [0.27, 0.405],
+                "absolute_tolerance": 1e-6,
+                "required_picks": 3,
+                "required_places": 3,
+                "allow_negative_or_other_rewards": False,
+            }
+        write_json_atomic(
+            {"source": str(source), "selection": selection, "episodes": provenance},
+            root / "meta/success_subset.json",
+        )
         root.rename(output)
     print(f"Created {output} (videos hard-linked; no reencoding)", flush=True)
 
@@ -150,10 +189,14 @@ def main():
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--stack-four-reward-key",
+        help="Select exactly three 0.135 picks and three 0.27–0.405 places, with no negative or other rewards",
+    )
     args = parser.parse_args()
     source = args.source.expanduser().resolve()
     output = (args.output or source.with_name(source.name + "_SUCCESS_ONLY")).expanduser().resolve()
-    create_subset(source, output, args.dry_run)
+    create_subset(source, output, args.dry_run, args.stack_four_reward_key)
 
 
 if __name__ == "__main__":
