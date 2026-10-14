@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import tempfile
+from contextlib import contextmanager
 from fractions import Fraction
 from pathlib import Path
 
@@ -12,6 +14,7 @@ import cv2
 import numpy as np
 import pyarrow.dataset as pa_ds
 import torch
+from filelock import SoftFileLock
 from torch.utils.data import DataLoader, Subset
 
 from lerobot.configs.policies import PreTrainedConfig
@@ -65,7 +68,48 @@ def frame_to_rgb(frame) -> np.ndarray:
     return np.repeat(frame, 3, axis=-1) if frame.shape[-1] == 1 else frame
 
 
+@contextmanager
+def atomic_output_path(path: Path):
+    """Publish a complete file without exposing partial writes to other jobs/readers."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.stem}.", suffix=path.suffix, delete=False) as f:
+        temporary = Path(f.name)
+    try:
+        yield temporary
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def write_json_atomic(path: Path, data):
+    with atomic_output_path(path) as temporary:
+        temporary.write_text(json.dumps(data, indent=2, allow_nan=False), encoding="utf-8")
+
+
+def update_prediction_json(path: Path, updates: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Exclusive file creation avoids flock errors on the shared filesystem.
+    with SoftFileLock(str(path) + ".lock", timeout=120):
+        result = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        result.update(updates)
+        write_json_atomic(path, result)
+
+
 def write_all_cams_video(dataset, camera_keys: list[str], start: int, end: int, path: Path, fps: float):
+    # Canceled older jobs may have left an incomplete MP4 at the final path.
+    if path.exists():
+        try:
+            with av.open(str(path)) as container:
+                if container.streams.video[0].frames == end - start:
+                    return
+        except (av.error.FFmpegError, OSError, IndexError):
+            pass
+    # Concurrent encoders may duplicate work, but only publish complete videos.
+    with atomic_output_path(path) as temporary:
+        _write_all_cams_video(dataset, camera_keys, start, end, temporary, fps)
+
+
+def _write_all_cams_video(dataset, camera_keys: list[str], start: int, end: int, path: Path, fps: float):
     path.parent.mkdir(parents=True, exist_ok=True)
     first = dataset[start]
     height = min(frame_to_rgb(first[key]).shape[0] for key in camera_keys)
@@ -241,13 +285,7 @@ def main():
             )
 
         json_path = output_dir / f"{base}.json"
-        if json_path.exists():
-            with json_path.open("r", encoding="utf-8") as f:
-                result = json.load(f)
-        else:
-            result = {}
-
-        result.update({
+        update_prediction_json(json_path, {
             "instruction": instruction,
             "video": video_rel,
             "num_frames": len(values),
@@ -282,15 +320,11 @@ def main():
             },
         })
 
-        json_path.parent.mkdir(parents=True, exist_ok=True)
-        with json_path.open("w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2, allow_nan=False)
         manifest_entries.append(base)
         print(f"Wrote {json_path}")
 
     if not args.skip_manifest:
-        with (output_dir / args.manifest_name).open("w", encoding="utf-8") as f:
-            json.dump(manifest_entries, f, indent=2)
+        write_json_atomic(output_dir / args.manifest_name, manifest_entries)
 
 
 if __name__ == "__main__":
