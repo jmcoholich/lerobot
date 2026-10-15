@@ -3,16 +3,36 @@
 set -euo pipefail
 
 TRAINING_DIR="/coc/testnvme/jcoholich3/lerobot"
-DATASET="stackFour50_mandalorian_astra_rewards"
-ADVANTAGE_KEY="awr_advantage_off_value_fn_random_stackFour50_mandalorian_astra_rewards_frozen_dropout25_last_OOF"
-JOB_PREFIX="${1:-stackFour_awr_oof}"
-# Weights are min(exp(T * advantage), 20); observed maxima are about 1.7, 2.9, 8.6, 20, and 20.
-TEMPERATURES=(0.5 1 2 3 4 10 20 40)
+DATASETS=(
+    "plug5_offline_rl_dataset_walle_skywalker_testset_annotated"
+    "stackFour50_mandalorian_astra_rewards"
+)
+ADVANTAGE_KEYS=(
+    "awr_advantage_off_value_fn_random_unfrozen_dropout0_last_OOF"
+    "awr_advantage_off_value_fn_random_stackFour50_mandalorian_astra_rewards_frozen_dropout25_last_OOF"
+)
+DATASET_LABELS=(plug5 stack4)
+JOB_PREFIX="${1:-awr}"
+TEMPERATURES=(0.5 1 2 3 4)
+# Exclude the untransformed baseline and mutually exclusive std + norm combinations.
+MODES=(bin std norm std_bin norm_bin)
 
 cd "$TRAINING_DIR"
-for temperature in "${TEMPERATURES[@]}"; do
-    job_name="${JOB_PREFIX}_temp_${temperature}"
-    echo "Submitting $job_name"
-    sbatch --job-name="$job_name" pi05_training.bash \
-        "$DATASET" "$job_name" "$temperature" "$ADVANTAGE_KEY"
+for i in "${!DATASETS[@]}"; do
+    for mode in "${MODES[@]}"; do
+        flags=()
+        case "$mode" in
+            std*) flags+=(--standardize_advantages) ;;
+            norm*) flags+=(--normalize_advantages) ;;
+        esac
+        if [[ "$mode" == *bin ]]; then
+            flags+=(--binarize_advantages)
+        fi
+        for temperature in "${TEMPERATURES[@]}"; do
+            job_name="${JOB_PREFIX}_${DATASET_LABELS[$i]}_${mode}_t${temperature}"
+            echo "Submitting $job_name"
+            sbatch --job-name="$job_name" pi05_training.bash \
+                "${DATASETS[$i]}" "$job_name" "$temperature" "${ADVANTAGE_KEYS[$i]}" "${flags[@]}"
+        done
+    done
 done
