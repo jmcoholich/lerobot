@@ -7,6 +7,18 @@
 #SBATCH --mem=32G
 #SBATCH --qos=short
 #SBATCH -x nestor,chappie,ig-88,perseverance,sonny,voltron
+
+# Usage: sbatch pi05_training.bash DATASET JOB_NAME TEMPERATURE ADVANTAGE_KEY [FLAGS...]
+# Supply all four positional arguments before any flags; a non-null temperature enables AWR.
+# Example: sbatch pi05_training.bash my_dataset my_job 2 awr_advantage \
+#     --normalize_advantages --binarize_advantages
+# Flags take no values and are disabled by default:
+#   --standardize_advantages: (advantage - dataset mean) / dataset std.
+#   --normalize_advantages: (advantage - dataset median) / (dataset p99 - dataset p1).
+#   --binarize_advantages: positive -> 1, negative -> -1, zero -> 0.
+# Standardization and normalization are mutually exclusive and use dataset metadata statistics.
+# Binarization runs after either scaling operation; all transforms precede weight conversion.
+
 JOB_NAME=$2
 OUTDIR=./outputs/$JOB_NAME
 CHUNK=40
@@ -55,6 +67,7 @@ python src/lerobot/scripts/lerobot_train.py\
     --batch_size=32 \
     --log_freq=20 \
     --save_freq=1500 \
+    "${@:5}" \
     --policy.normalization_mapping='{"VISUAL":"IDENTITY","STATE":"QUANTILES","ACTION":"MIN_MAX"}'
 
 

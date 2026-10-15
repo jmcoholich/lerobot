@@ -83,6 +83,10 @@ class PI05Config(PreTrainedConfig):
     awr_temperature: float | None = None  # Weight BC loss by exp(temperature * advantage)
     awr_advantage_key: str = "awr_advantage"  # Dataset field containing per-sample advantages
 
+    binarize_advantages: bool = False
+    standardize_advantages: bool = False
+    normalize_advantages: bool = False
+
     # Optimizer settings: see openpi `AdamW`
     optimizer_lr: float = 2.5e-5  # see openpi `CosineDecaySchedule: peak_lr`
     optimizer_betas: tuple[float, float] = (0.9, 0.95)
@@ -103,6 +107,9 @@ class PI05Config(PreTrainedConfig):
         super().__post_init__()
 
         # Validate configuration
+        if self.standardize_advantages and self.normalize_advantages:
+            raise ValueError("standardize_advantages and normalize_advantages are mutually exclusive")
+
         if self.n_action_steps > self.chunk_size:
             raise ValueError(
                 f"n_action_steps ({self.n_action_steps}) cannot be greater than chunk_size ({self.chunk_size})"

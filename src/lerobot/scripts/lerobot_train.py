@@ -13,8 +13,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import argparse
 import dataclasses
 import logging
+import sys
 import time
 from contextlib import nullcontext
 from pprint import pformat
@@ -471,6 +473,16 @@ def train(cfg: TrainPipelineConfig, accelerator: Accelerator | None = None):
 
 
 def main():
+    awr_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    awr_parser.add_argument("--binarize_advantages", action="store_true")
+    scaling = awr_parser.add_mutually_exclusive_group()
+    scaling.add_argument("--standardize_advantages", action="store_true")
+    scaling.add_argument("--normalize_advantages", action="store_true")
+    awr_args, remaining_args = awr_parser.parse_known_args()
+    # Keep policy overrides visible to both the config parser and pretrained loading.
+    sys.argv[1:] = remaining_args + [
+        f"--policy.{name}=true" for name, enabled in vars(awr_args).items() if enabled
+    ]
     register_third_party_plugins()
     train()
 

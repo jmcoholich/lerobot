@@ -910,6 +910,7 @@ class PI05Policy(PreTrainedPolicy):
         super().__init__(config)
         config.validate_features()
         self.config = config
+        self.awr_advantage_stats = (kwargs.get("dataset_stats") or {}).get(config.awr_advantage_key, {})
 
         # Initialize the core PI05 model
         self.init_rtc_processor()
@@ -1224,6 +1225,32 @@ class PI05Policy(PreTrainedPolicy):
 
         if self.config.awr_temperature is not None:
             advantages = batch[self.config.awr_advantage_key].reshape(losses.shape[0]).to(losses)
+            # Use dataset-wide metadata statistics, independent of batch composition.
+            if self.config.standardize_advantages or self.config.normalize_advantages:
+                advantages = batch[self.config.awr_advantage_key].reshape(losses.shape[0]).to(
+                    device=losses.device, dtype=torch.float32
+                )
+                required_stats = (
+                    ("mean", "std") if self.config.standardize_advantages else ("q01", "q50", "q99")
+                )
+                if any(key not in self.awr_advantage_stats for key in required_stats):
+                    raise ValueError(
+                        f"AWR requires dataset metadata statistics {required_stats} "
+                        f"for {self.config.awr_advantage_key!r}"
+                    )
+                stats = {
+                    key: torch.as_tensor(
+                        self.awr_advantage_stats[key], device=advantages.device, dtype=torch.float32
+                    )
+                    for key in required_stats
+                }
+                if self.config.standardize_advantages:
+                    center, scale = stats["mean"], stats["std"]
+                else:
+                    center, scale = stats["q50"], stats["q99"] - stats["q01"]
+                advantages = (advantages - center.reshape(())) / scale.reshape(()).clamp(min=1e-8)
+            if self.config.binarize_advantages:
+                advantages = advantages.sign()
             weights = torch.exp(self.config.awr_temperature * advantages).clamp(max=20.0)
             loss = (losses.mean(dim=[1, 2]) * weights).mean()
         else:
